@@ -18,7 +18,6 @@ output/
 .claude-flow/*
 
 # Configs and state
-cv/resume.cls
 cv/main.tex
 state/*
 config/*
