@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated / compiled output — keep source (.md, .tex) but ignore build artifacts
+output/
+
+# Secrets / env
+.env
+*.env
+
+# AI tools
+.claude/*
+.claude-flow/*
+
+# Configs and state
+cv/resume.cls
+cv/main.tex
+state/*
+config/*
