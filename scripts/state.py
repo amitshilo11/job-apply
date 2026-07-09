@@ -5,10 +5,12 @@ Manage application state in state/applications.json, state/skipped.json, and sta
 Commands:
   add        -- append a new application entry
   skip       -- log a company that was skipped (with reason + details)
-  list-due   -- show entries where followup_due <= today and status != "follow-up-sent"
+  list-due   -- show entries where followup_due <= today and still need a follow-up
   list-all   -- show all entries
-  mark-sent  -- update status for an entry
-  queue      -- manage the discovery queue (sub-commands: add, list, next, remove, stats)
+  mark-sent  -- update email/followup status for an entry
+  update     -- update the pipeline stage for an entry (replied, interview, offer, rejected...)
+  mark-task  -- record a manually-completed task (applied, connected, messaged) for an entry
+  queue      -- manage the discovery queue (sub-commands: add, list, next, remove, reset, stats)
 
 Usage examples:
   python scripts/state.py add --company "Wiz" --slug "wiz" --job-title "Backend Engineer" \\
@@ -23,6 +25,12 @@ Usage examples:
   python scripts/state.py mark-sent --slug "wiz" --type followup
   python scripts/state.py mark-sent --slug "wiz" --type email
 
+  python scripts/state.py update --slug "wiz" --stage replied
+  python scripts/state.py update --slug "wiz" --stage interview --note "Phone screen booked for Tuesday"
+
+  python scripts/state.py mark-task --slug "wiz" --task applied
+  python scripts/state.py mark-task --slug "wiz" --task connected_hr
+
   python scripts/state.py queue add --company "Wiz" --slug "wiz" \\
     --website "https://wiz.io" --linkedin "https://linkedin.com/company/wiz" \\
     --source "Aleph portfolio" --source-url "https://aleph.vc/portfolio"
@@ -30,11 +38,13 @@ Usage examples:
   python scripts/state.py queue list
   python scripts/state.py queue next --count 3
   python scripts/state.py queue remove --slug "wiz"
+  python scripts/state.py queue reset
   python scripts/state.py queue stats
 """
 
 import argparse
 import json
+import re
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -43,6 +53,31 @@ ROOT = Path(__file__).parent.parent
 STATE_FILE = ROOT / "state" / "applications.json"
 SKIPPED_FILE = ROOT / "state" / "skipped.json"
 QUEUE_FILE = ROOT / "state" / "queue.json"
+
+# Pipeline stages beyond the initial email status (sent/drafted/email-skipped).
+# A closed stage means the company is done following up on regardless of followup_due.
+STAGES = ["applied", "replied", "interview", "offer", "rejected", "ghosted", "withdrawn"]
+CLOSED_STAGES = {"rejected", "withdrawn", "offer"}
+
+TASK_TYPES = ["applied", "connected_hr", "connected_lead", "messaged_hr", "messaged_lead"]
+
+
+def slugify(name: str) -> str:
+    """lowercase, non-alphanumeric runs -> '-', trim leading/trailing '-'."""
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+    return slug or "company"
+
+
+_NULLISH = {"null", "none", "n/a", "not found", ""}
+
+
+def _clean(value):
+    """Treat CLI args like --hr-url null (literal word, not omitted) as unset."""
+    if value is None:
+        return None
+    if str(value).strip().lower() in _NULLISH:
+        return None
+    return value
 
 
 def load_state():
@@ -85,7 +120,7 @@ def save_skipped(entries):
 
 def cmd_skip(args):
     entries = load_skipped()
-    slug = args.slug or args.company.lower().replace(" ", "-")
+    slug = args.slug or slugify(args.company)
     existing = next((e for e in entries if e.get("slug") == slug), None)
     if existing:
         print(f"WARNING: '{slug}' already in skipped list. Updating.")
@@ -108,7 +143,7 @@ def cmd_add(args):
     settings = load_settings()
     followup_days = settings.get("followup_days", 5)
 
-    slug = args.slug or args.company.lower().replace(" ", "-")
+    slug = args.slug or slugify(args.company)
     followup_due = (date.today() + timedelta(days=followup_days)).isoformat()
 
     # Don't add duplicate slug
@@ -121,11 +156,11 @@ def cmd_add(args):
     entry = {
         "company": args.company,
         "slug": slug,
-        "job_title": args.job_title or None,
-        "email_sent_to": args.email_sent_to or None,
+        "job_title": _clean(args.job_title),
+        "email_sent_to": _clean(args.email_sent_to),
         "status": args.status,
-        "hr_url": args.hr_url or None,
-        "lead_url": args.lead_url or None,
+        "hr_url": _clean(args.hr_url),
+        "lead_url": _clean(args.lead_url),
         "created_at": today_str(),
         "followup_due": followup_due,
         "followup_status": "pending",
@@ -142,6 +177,8 @@ def cmd_list_due(args):
         e for e in entries
         if e.get("followup_due", "9999-99-99") <= today
         and e.get("followup_status") != "sent"
+        and e.get("stage") not in CLOSED_STAGES
+        and not (e.get("status") == "email-skipped" and not e.get("email_sent_to"))
     ]
     if not due:
         print("No follow-ups due.")
@@ -152,6 +189,7 @@ def cmd_list_due(args):
         print(f"    Job:          {e.get('job_title') or 'general'}")
         print(f"    Email sent:   {e.get('email_sent_to') or 'n/a'}")
         print(f"    Status:       {e.get('status')}")
+        print(f"    Stage:        {e.get('stage') or 'none'}")
         print(f"    Due:          {e.get('followup_due')}")
         print(f"    HR:           {e.get('hr_url') or 'not found'}")
         print(f"    Lead:         {e.get('lead_url') or 'not found'}")
@@ -165,9 +203,11 @@ def cmd_list_all(args):
         return
     for e in entries:
         status_line = f"{e.get('status')}"
+        if e.get("stage"):
+            status_line += f" → {e['stage']}"
         if e.get("followup_status") == "sent":
             status_line += " + follow-up sent"
-        elif e.get("followup_due", "9999-99-99") <= today_str():
+        elif e.get("stage") not in CLOSED_STAGES and e.get("followup_due", "9999-99-99") <= today_str():
             status_line += " (follow-up OVERDUE)"
         print(f"  {e['company']:30s} {e.get('job_title') or 'general':35s} {status_line}")
 
@@ -195,6 +235,35 @@ def cmd_mark_sent(args):
     save_state(entries)
 
 
+def cmd_update(args):
+    entries = load_state()
+    entry = next((e for e in entries if e.get("slug") == args.slug), None)
+    if not entry:
+        print(f"ERROR: no entry found for slug '{args.slug}'", file=sys.stderr)
+        sys.exit(1)
+
+    entry["stage"] = args.stage
+    entry["stage_updated_at"] = today_str()
+    if args.note:
+        entry.setdefault("stage_notes", []).append({"date": today_str(), "note": args.note})
+
+    save_state(entries)
+    closed = " (closed — no more follow-ups)" if args.stage in CLOSED_STAGES else ""
+    print(f"Updated {entry['company']}: stage={args.stage}{closed}")
+
+
+def cmd_mark_task(args):
+    entries = load_state()
+    entry = next((e for e in entries if e.get("slug") == args.slug), None)
+    if not entry:
+        print(f"ERROR: no entry found for slug '{args.slug}'", file=sys.stderr)
+        sys.exit(1)
+
+    entry.setdefault("tasks", {})[args.task] = today_str()
+    save_state(entries)
+    print(f"Marked '{args.task}' done for {entry['company']}")
+
+
 def load_queue():
     if not QUEUE_FILE.exists():
         return []
@@ -220,7 +289,7 @@ def _known_slugs():
 
 
 def cmd_queue_add(args):
-    slug = args.slug or args.company.lower().replace(" ", "-")
+    slug = args.slug or slugify(args.company)
     known = _known_slugs()
     if slug in known:
         print(f"SKIP: '{slug}' already known (applications, skipped, or queue).")
@@ -281,9 +350,27 @@ def cmd_queue_remove(args):
     before = len(entries)
     entries = [e for e in entries if e.get("slug") != args.slug]
     if len(entries) == before:
+        print(f"WARNING: '{args.slug}' not found in queue — nothing removed.", file=sys.stderr)
         return
     save_queue(entries)
     print(f"Removed '{args.slug}' from queue.")
+
+
+def cmd_queue_reset(args):
+    """Un-stick queue entries left in 'processing' (e.g. an interrupted run)."""
+    entries = load_queue()
+    if args.slug:
+        targets = [e for e in entries if e.get("slug") == args.slug and e.get("status") == "processing"]
+    else:
+        targets = [e for e in entries if e.get("status") == "processing"]
+    if not targets:
+        print("Nothing to reset.")
+        return
+    for e in targets:
+        e["status"] = "queued"
+    save_queue(entries)
+    names = ", ".join(e["company"] for e in targets)
+    print(f"Reset {len(targets)} entr{'y' if len(targets) == 1 else 'ies'} back to queued: {names}")
 
 
 def cmd_queue_stats(args):
@@ -305,10 +392,12 @@ def cmd_queue(args):
         cmd_queue_next(args)
     elif sub == "remove":
         cmd_queue_remove(args)
+    elif sub == "reset":
+        cmd_queue_reset(args)
     elif sub == "stats":
         cmd_queue_stats(args)
     else:
-        print("Usage: state.py queue {add|list|next|remove|stats}")
+        print("Usage: state.py queue {add|list|next|remove|reset|stats}")
         sys.exit(1)
 
 
@@ -345,6 +434,17 @@ def main():
     p_mark.add_argument("--slug", required=True)
     p_mark.add_argument("--type", required=True, choices=["email", "followup"])
 
+    # update
+    p_update = sub.add_parser("update", help="Update the pipeline stage for an entry")
+    p_update.add_argument("--slug", required=True)
+    p_update.add_argument("--stage", required=True, choices=STAGES)
+    p_update.add_argument("--note", help="Optional note (e.g. interview date, rejection reason)")
+
+    # mark-task
+    p_task = sub.add_parser("mark-task", help="Record a manually-completed task for an entry")
+    p_task.add_argument("--slug", required=True)
+    p_task.add_argument("--task", required=True, choices=TASK_TYPES)
+
     # queue
     p_queue = sub.add_parser("queue", help="Manage the discovery queue")
     queue_sub = p_queue.add_subparsers(dest="queue_command")
@@ -366,6 +466,9 @@ def main():
     pq_remove = queue_sub.add_parser("remove", help="Remove a company from the queue")
     pq_remove.add_argument("--slug", required=True)
 
+    pq_reset = queue_sub.add_parser("reset", help="Reset stuck 'processing' entries back to queued")
+    pq_reset.add_argument("--slug", help="Only reset this slug (default: reset all stuck entries)")
+
     queue_sub.add_parser("stats", help="Show queue statistics")
 
     args = parser.parse_args()
@@ -380,6 +483,10 @@ def main():
         cmd_list_all(args)
     elif args.command == "mark-sent":
         cmd_mark_sent(args)
+    elif args.command == "update":
+        cmd_update(args)
+    elif args.command == "mark-task":
+        cmd_mark_task(args)
     elif args.command == "queue":
         cmd_queue(args)
     else:

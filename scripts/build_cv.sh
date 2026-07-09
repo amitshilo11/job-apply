@@ -16,7 +16,7 @@ TEX_FILE="$ROOT/output/$SLUG/tailored_cv.tex"
 OUT_DIR="$ROOT/output/$SLUG"
 
 if [[ ! -f "$TEX_FILE" ]]; then
-  echo "ERROR: $TEX_FILE not found. Run tailor_cv.py first." >&2
+  echo "ERROR: $TEX_FILE not found. Tailor the CV first (Flow 1, Step 4)." >&2
   exit 1
 fi
 

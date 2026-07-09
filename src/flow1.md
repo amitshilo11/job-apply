@@ -124,15 +124,7 @@ Contact email: <email OR "not found">
 
 Always run this step whenever a matching role was found (regardless of whether a contact email exists — the CV is needed for ATS applications too).
 
-Run:
-```bash
-python scripts/tailor_cv.py \
-  --company "<company-slug>" \
-  --job-title "<job title or 'general'>" \
-  --jd-snippet "<paste JD snippet from research.md>"
-```
-
-This creates `output/<company-slug>/tailored_cv.tex`.
+Read `cv/main.tex` and `src/prompts/tailor_cv.md` (tailoring rules), then write the tailored `.tex` content directly to `output/<company-slug>/tailored_cv.tex`, using the job title and JD snippet from `research.md` to decide what to emphasize. Mark each changed bullet with a `% TAILORED:` comment as described in the rules.
 
 Then compile to PDF:
 ```bash
@@ -226,18 +218,43 @@ These are for YOU to send manually. Open each URL, copy the text, hit Connect.
 
 ---
 
+## Step 8.5 — Write structured metadata
+
+Write `output/<company-slug>/meta.json` capturing everything gathered in Steps 1–8, so `generate_report.py` doesn't have to regex-parse the markdown:
+
+```json
+{
+  "website": "<url or null>",
+  "careers_url": "<url or null>",
+  "best_fit": "<job title or null>",
+  "apply_url": "<url or null>",
+  "fit_notes": ["+ <strength 1>", "+ <strength 2>", "- <gap 1>"],
+  "email": "<contact email or null>",
+  "contacts": [
+    {"title": "HR / Recruiter", "profile": "<url or null>", "job_title": "<title or null>", "connect_note": "<text or null>", "first_message": "<text or null>"},
+    {"title": "Team Lead", "profile": "<url or null>", "job_title": "<title or null>", "connect_note": "<text or null>", "first_message": "<text or null>"}
+  ],
+  "email_draft": {"to": "<email or null>", "subject": "<subject or null>", "body": "<body or null>"}
+}
+```
+
+Omit `email_draft` (or set to `null`) if Step 5/6 was skipped because no contact email was found.
+
+---
+
 ## Step 9 — Log state
 
-Run:
+Run (only include a flag if you actually have a value — `state.py` treats a missing flag or the
+literal word `null` the same way, but omitting it is clearer):
 ```bash
 python3 scripts/state.py add \
   --company "<company name>" \
   --slug "<company-slug>" \
-  --job-title "<title or null>" \
-  --email-sent-to "<email or null>" \
+  --job-title "<title>" \
+  --email-sent-to "<email>" \
   --status "<sent|drafted|email-skipped>" \
-  --hr-url "<url or null>" \
-  --lead-url "<url or null>"
+  --hr-url "<url>" \
+  --lead-url "<url>"
 ```
 
 This appends an entry to `state/applications.json` with `followup_due` set to today + `followup_days` from settings.
@@ -280,7 +297,7 @@ Then print a short summary:
 When the user says "show follow-ups" or "check due":
 
 ```bash
-python scripts/state.py list-due
+python3 scripts/state.py list-due
 ```
 
 For each entry due, draft a short follow-up email using `src/prompts/draft_email.md` (follow-up variant).
@@ -288,8 +305,14 @@ Save to `output/<slug>/followup_email.md`.
 Same dry_run logic as Step 6.
 After sending, run:
 ```bash
-python scripts/state.py mark-sent --slug "<slug>" --type followup
+python3 scripts/state.py mark-sent --slug "<slug>" --type followup
 ```
+
+When you learn what happened after a follow-up (reply, interview, rejection), update the pipeline stage:
+```bash
+python3 scripts/state.py update --slug "<slug>" --stage replied
+```
+`rejected`, `withdrawn`, and `offer` are closed stages — no more follow-ups will be surfaced for them.
 
 ---
 

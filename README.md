@@ -144,10 +144,12 @@ Then authenticate when prompted on first use.
 ## Directory structure
 
 ```
+CLAUDE.md      project context + routing table Claude Code loads automatically
+.claude/commands/  slash-command shortcuts (/find-startups, /process, /add-queue, /apply-role, /followups)
 cv/            your LaTeX CV  (you add main.tex)
 config/        profile, writing samples, settings  (gitignored — you fill these)
-scripts/       tailor_cv.py, build_cv.sh, state.py
-src/           flow playbooks (flow0.md, flow1.md, flow2.md) + prompt modules
+scripts/       build_cv.sh, state.py, generate_report.py
+src/           flow playbooks (flow0.md–flow3.md) + prompt modules
 state/         applications.json, queue.json, skipped.json  (gitignored — auto-managed)
 output/        one folder per company  (gitignored — auto-generated)
 ```
@@ -156,7 +158,9 @@ output/        one folder per company  (gitignored — auto-generated)
 
 ## Flows
 
-There are three flows. You trigger them by typing natural language in Claude Code.
+There are four flows. You trigger them by typing natural language in Claude Code, or with the
+equivalent slash command in `.claude/commands/` (`/find-startups`, `/add-queue`, `/process`,
+`/apply-role`, `/followups`).
 
 ---
 
@@ -260,6 +264,26 @@ process these companies: Wiz, Snyk, Orca Security
 
 ---
 
+### Flow 3 — Apply to a specific role
+
+Use this when you already have a job posting in hand — a URL, or just a company + title — rather
+than discovering companies through Flow 0/2.
+
+**Trigger:**
+
+```
+process role https://jobs.lever.co/acme/abc123
+process role at Acme: Backend Engineer
+apply for Backend Engineer at Acme
+apply to https://jobs.lever.co/acme/abc123
+```
+
+**What it does:** same shape as Flow 1 (research, tailored CV, contact email, draft email,
+LinkedIn lookup and messages, state logging, report) but starting from the specific role instead
+of searching a careers page — see `src/flow3.md` for the exact steps.
+
+---
+
 ## CV tailoring
 
 The CV tailoring prompt lives at `src/prompts/tailor_cv.md`. It instructs Claude to:
@@ -288,7 +312,33 @@ Check what's due:
 python3 scripts/state.py list-due
 ```
 
-Then say `draft follow-ups` in Claude Code. It will draft a short follow-up for each due company and save it to `output/<slug>/followup_email.md`. Same `dry_run` logic applies.
+Then say `draft follow-ups` (or `/followups`) in Claude Code. It will draft a short follow-up for each due company and save it to `output/<slug>/followup_email.md`. Same `dry_run` logic applies. `output/index.html` also shows a "Follow-ups due" strip at the top with a pill per company overdue or due today.
+
+`list-due` automatically skips companies whose pipeline `stage` is closed (`rejected`, `withdrawn`, `offer`) or that never had an email to follow up on (`email-skipped` with no address found) — see [Tracking outcomes](#tracking-outcomes) below.
+
+---
+
+## Tracking outcomes
+
+The initial `status` (`sent` / `drafted` / `email-skipped`) only tracks whether the first email went out. To track what happens after — a reply, an interview, a rejection — update the `stage`:
+
+```bash
+python3 scripts/state.py update --slug wiz --stage replied
+python3 scripts/state.py update --slug wiz --stage interview --note "phone screen booked for Tuesday"
+python3 scripts/state.py update --slug wiz --stage rejected
+```
+
+Valid stages: `applied`, `replied`, `interview`, `offer`, `rejected`, `ghosted`, `withdrawn`. The last three are "closed" — once set, `list-due` stops surfacing that company and the report hides its follow-up-due date.
+
+To record that you manually completed a LinkedIn connect/message or an ATS application (these can't be detected automatically, so tell Claude and it will log it):
+
+```bash
+python3 scripts/state.py mark-task --slug wiz --task connected_hr
+python3 scripts/state.py mark-task --slug wiz --task messaged_lead
+python3 scripts/state.py mark-task --slug wiz --task applied
+```
+
+After any `update` or `mark-task`, regenerate that company's report so the dashboard reflects it: `python3 scripts/generate_report.py wiz`.
 
 ---
 
@@ -321,6 +371,9 @@ python3 scripts/state.py queue add \
 
 # Remove a company
 python3 scripts/state.py queue remove --slug "wiz"
+
+# Un-stick entries left in "processing" (e.g. an interrupted run)
+python3 scripts/state.py queue reset
 ```
 
 ---
@@ -330,10 +383,12 @@ python3 scripts/state.py queue remove --slug "wiz"
 | File | What it tracks |
 |------|---------------|
 | `state/queue.json` | Companies discovered or added manually, waiting to be processed |
-| `state/applications.json` | Companies that have been fully processed (email sent/drafted) |
+| `state/applications.json` | Companies that have been fully processed — email status, pipeline `stage`, and manually-completed `tasks` (see [Tracking outcomes](#tracking-outcomes)) |
 | `state/skipped.json` | Companies that were ruled out (with reason) |
 
-All three are plain JSON — safe to edit by hand.
+All three are plain JSON — safe to edit by hand, though prefer the `state.py` commands so slugs and dedupe stay consistent.
+
+Each company's `output/<slug>/meta.json` (written by Flow 1/3) holds the same research/contacts/email data as the markdown files in structured form — `generate_report.py` reads it when present and only falls back to parsing the markdown for older output folders that predate it.
 
 ---
 

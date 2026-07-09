@@ -13,6 +13,8 @@ import sys
 from datetime import date
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
+from state import CLOSED_STAGES  # noqa: E402
 
 
 def read_file(path):
@@ -127,11 +129,59 @@ def parse_email(content):
     return result
 
 
+def load_meta(slug):
+    """Structured output/<slug>/meta.json written by Flow 1/3, if present.
+
+    Preferred over regex-parsing the markdown files — more robust to wording
+    drift in what Claude writes to research.md / email.md / linkedin.md.
+    """
+    content = read_file(os.path.join(ROOT, "output", slug, "meta.json"))
+    if not content:
+        return None
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        return None
+
+
+def load_report_data(slug):
+    """Return (research, contacts, email) for a slug, preferring meta.json."""
+    out_dir = os.path.join(ROOT, "output", slug)
+    meta = load_meta(slug)
+    if meta:
+        research = {
+            "website": meta.get("website"),
+            "careers_url": meta.get("careers_url"),
+            "best_fit": meta.get("best_fit"),
+            "apply_url": meta.get("apply_url"),
+            "fit_notes": meta.get("fit_notes", []),
+            "email": meta.get("email"),
+        }
+        contacts = meta.get("contacts", [])
+        email = meta.get("email_draft")
+        return research, contacts, email
+
+    research = parse_research(read_file(os.path.join(out_dir, "research.md")))
+    contacts = parse_linkedin(read_file(os.path.join(out_dir, "linkedin.md")))
+    email = parse_email(read_file(os.path.join(out_dir, "email.md")))
+    return research, contacts, email
+
+
 STATUS_BADGE = {
     "sent": ("badge-sent", "Sent"),
     "drafted": ("badge-drafted", "Draft Saved"),
     "email-skipped": ("badge-skipped", "Email Skipped"),
     "pending": ("badge-pending", "Pending"),
+}
+
+STAGE_BADGE = {
+    "applied": ("badge-stage-applied", "Applied"),
+    "replied": ("badge-stage-replied", "Replied"),
+    "interview": ("badge-stage-interview", "Interview"),
+    "offer": ("badge-stage-offer", "Offer"),
+    "rejected": ("badge-stage-rejected", "Rejected"),
+    "ghosted": ("badge-stage-ghosted", "Ghosted"),
+    "withdrawn": ("badge-stage-withdrawn", "Withdrawn"),
 }
 
 CSS = """
@@ -146,6 +196,13 @@ h1{font-size:1.9rem;font-weight:700;margin-bottom:.4rem}
 .badge-drafted{background:#dbeafe;color:#1e40af}
 .badge-skipped{background:#f3f4f6;color:#374151}
 .badge-pending{background:#fef3c7;color:#92400e}
+.badge-stage-applied{background:#dbeafe;color:#1e40af}
+.badge-stage-replied{background:#e0e7ff;color:#3730a3}
+.badge-stage-interview{background:#fef3c7;color:#92400e}
+.badge-stage-offer{background:#d1fae5;color:#065f46}
+.badge-stage-rejected{background:#fee2e2;color:#991b1b}
+.badge-stage-ghosted{background:#f3f4f6;color:#374151}
+.badge-stage-withdrawn{background:#f3f4f6;color:#374151}
 .meta{color:#6e6e73;font-size:.9rem;margin-top:.4rem}
 .links-row{display:flex;gap:1rem;flex-wrap:wrap;margin-top:.75rem}
 .links-row a{color:#0071e3;font-size:.9rem;text-decoration:none;border:1px solid #0071e3;padding:.2rem .65rem;border-radius:6px}
@@ -261,20 +318,27 @@ def esc(text):
 
 def generate_report(slug):
     out_dir = os.path.join(ROOT, "output", slug)
-    research = parse_research(read_file(os.path.join(out_dir, "research.md")))
-    contacts = parse_linkedin(read_file(os.path.join(out_dir, "linkedin.md")))
-    email = parse_email(read_file(os.path.join(out_dir, "email.md")))
+    research, contacts, email = load_report_data(slug)
     pdf_exists = os.path.exists(os.path.join(out_dir, "tailored_cv.pdf"))
     state = get_state(slug)
 
     company = state.get("company", slug)
     job_title = state.get("job_title") or research.get("best_fit", "")
     status = state.get("status", "pending")
+    stage = state.get("stage")
     followup_due = state.get("followup_due", "")
     badge_class, badge_label = STATUS_BADGE.get(status, ("badge-pending", status))
+    stage_badge_html = ""
+    if stage:
+        stage_class, stage_label = STAGE_BADGE.get(stage, ("badge-pending", stage))
+        stage_badge_html = f'<span class="badge {stage_class}">{stage_label}</span>'
 
     # apply_url: prefer research, fallback to state hr/lead urls won't help, keep None
     apply_url = research.get("apply_url")
+
+    followup_line = ""
+    if stage not in CLOSED_STAGES:
+        followup_line = f"Follow-up due: <strong>{esc(followup_due)}</strong>"
 
     parts = []
     parts.append(f"""<!DOCTYPE html>
@@ -289,8 +353,8 @@ def generate_report(slug):
 <div class="container">
 <a href="../index.html" class="back-link">← All applications</a>
 <div class="card">
-  <h1>{esc(company)}<span class="badge {badge_class}">{badge_label}</span></h1>
-  <div class="meta">{('<strong>' + esc(job_title) + '</strong> &nbsp;·&nbsp; ') if job_title else ''}Follow-up due: <strong>{esc(followup_due)}</strong></div>
+  <h1>{esc(company)}<span class="badge {badge_class}">{badge_label}</span>{stage_badge_html}</h1>
+  <div class="meta">{('<strong>' + esc(job_title) + '</strong> &nbsp;·&nbsp; ') if job_title else ''}{followup_line}</div>
   <div class="links-row">
     {('<a href="' + esc(research['website']) + '" target="_blank">Website</a>') if research.get('website') else ''}
     {('<a href="' + esc(research['careers_url']) + '" target="_blank">Careers page</a>') if research.get('careers_url') else ''}
@@ -384,6 +448,19 @@ def generate_report(slug):
   {email_inner}
 </div>""")
 
+    # Follow-up email card (if a follow-up has been drafted)
+    followup = parse_email(read_file(os.path.join(out_dir, "followup_email.md")))
+    if followup and followup.get("body"):
+        followup_key = f"followup_{slug}"
+        parts.append(f"""<div class="card">
+  <div class="section-title">Follow-up Email</div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+    <p class="meta" style="margin:0">To: {esc(followup.get("to",""))} &nbsp;·&nbsp; Subject: {esc(followup.get("subject",""))}</p>
+    <span class="check-pill" data-ck="{followup_key}" onclick="toggleCheck(this)">Follow-up sent</span>
+  </div>
+  <div class="email-body">{esc(followup.get("body",""))}</div>
+</div>""")
+
     # CV card
     if pdf_exists:
         cv_inner = (f'<a class="pdf-download" href="tailored_cv.pdf" download>Download PDF</a>'
@@ -407,9 +484,8 @@ def generate_report(slug):
 
 def get_task_keys(slug):
     out_dir = os.path.join(ROOT, "output", slug)
-    research = parse_research(read_file(os.path.join(out_dir, "research.md")))
-    contacts = parse_linkedin(read_file(os.path.join(out_dir, "linkedin.md")))
-    email = parse_email(read_file(os.path.join(out_dir, "email.md")))
+    research, contacts, email = load_report_data(slug)
+    followup = parse_email(read_file(os.path.join(out_dir, "followup_email.md")))
     keys = []
     if research.get("apply_url"):
         keys.append(f"apply_{slug}")
@@ -420,6 +496,8 @@ def get_task_keys(slug):
             keys.append(f"connect_{slug}_{i}")
         if c.get("first_message"):
             keys.append(f"firstmsg_{slug}_{i}")
+    if followup and followup.get("body"):
+        keys.append(f"followup_{slug}")
     return keys
 
 
@@ -475,6 +553,14 @@ h1{font-size:1.8rem;font-weight:700;margin-bottom:.25rem}
 .btn-archive:hover{background:#b91c1c}
 .btn-restore{background:#f0fdf4;color:#065f46;font-size:.78rem}
 .btn-restore:hover{background:#dcfce7}
+.due-strip{background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:1rem 1.25rem;margin-bottom:1.5rem}
+.due-strip-label{font-size:.72rem;font-weight:600;color:#92400e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:.6rem}
+.due-strip-row{display:flex;flex-wrap:wrap;gap:.5rem}
+.due-pill{display:inline-flex;align-items:center;gap:.4rem;background:#fff;border:1px solid #fde68a;color:#92400e;text-decoration:none;padding:.3rem .75rem;border-radius:20px;font-size:.85rem;font-weight:500}
+.due-pill:hover{background:#fef3c7}
+.due-pill.overdue{border-color:#fca5a5;color:#991b1b}
+.due-pill.overdue:hover{background:#fee2e2}
+.due-pill-date{font-size:.72rem;opacity:.75}
 """
 
 
@@ -644,21 +730,49 @@ def generate_index(slugs):
         company = a.get("company", slug)
         status = a.get("status", "pending")
         job_title = a.get("job_title", "")
-        followup = a.get("followup_due", "")
+        stage = a.get("stage")
+        followup = a.get("followup_due", "") if stage not in CLOSED_STAGES else ""
         badge_class, badge_label = STATUS_BADGE.get(status, ("badge-pending", status))
+        stage_badge_html = ""
+        if stage:
+            stage_class, stage_label = STAGE_BADGE.get(stage, ("badge-pending", stage))
+            stage_badge_html = f'<span class="badge {stage_class}">{stage_label}</span>'
         task_keys = get_task_keys(slug)
         data_tasks = ",".join(task_keys)
         cards += f"""<a class="app-card" href="{esc(slug)}/report.html" data-tasks="{data_tasks}" data-slug="{esc(slug)}" data-company="{esc(company)}" data-role="{esc(job_title)}">
   <div class="app-company">{esc(company)}</div>
   <div class="app-role">{esc(job_title) or '&nbsp;'}</div>
   <div class="app-foot">
-    <span class="badge {badge_class}">{badge_label}</span>
+    <span class="badge {badge_class}">{badge_label}</span>{stage_badge_html}
     <span class="app-due">{esc(followup)}</span>
   </div>
   {('<div class="app-progress"></div>') if task_keys else ''}
   <button class="archive-btn" data-slug="{esc(slug)}" title="Archive">&times;</button>
 </a>
 """
+
+    # Due-today / overdue strip — the one thing worth checking every day
+    today = date.today().isoformat()
+    due_rows = ""
+    for slug, a in by_slug.items():
+        if a.get("stage") in CLOSED_STAGES:
+            continue
+        if a.get("followup_status") == "sent":
+            continue
+        if a.get("status") == "email-skipped" and not a.get("email_sent_to"):
+            continue
+        due_date = a.get("followup_due", "9999-99-99")
+        if due_date > today:
+            continue
+        overdue = due_date < today
+        due_rows += (f'<a class="due-pill{" overdue" if overdue else ""}" href="{esc(slug)}/report.html">'
+                     f'{esc(a.get("company", slug))} <span class="due-pill-date">{esc(due_date)}</span></a>')
+    due_strip = ""
+    if due_rows:
+        due_strip = f"""<div class="due-strip">
+  <div class="due-strip-label">Follow-ups due</div>
+  <div class="due-strip-row">{due_rows}</div>
+</div>"""
 
     # Skipped companies section
     skipped_data = read_file(os.path.join(ROOT, "state", "skipped.json"))
@@ -698,6 +812,7 @@ def generate_index(slugs):
 <div class="container">
 <h1>Job Applications</h1>
 <p class="subtitle">{count} application{'s' if count != 1 else ''} tracked &nbsp;·&nbsp; {date.today().isoformat()}</p>
+{due_strip}
 <div class="tab-bar">
   <button class="tab active" data-tab="active">Active Applications</button>
   <button class="tab" data-tab="archived">Archives &amp; Not Processed</button>

@@ -13,8 +13,8 @@ output/
 .env
 *.env
 
-# AI tools
-.claude/*
+# AI tools — keep shared slash commands, ignore machine-local settings
+.claude/settings.local.json
 .claude-flow/*
 
 # Configs and state

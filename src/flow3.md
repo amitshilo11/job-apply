@@ -63,6 +63,21 @@ Contact email: <email OR "not found">
 
 ---
 
+## Step 2.5 — Tailor CV
+
+Read `cv/main.tex` and `src/prompts/tailor_cv.md` (tailoring rules), then write the tailored
+`.tex` content to `output/<slug>/tailored_cv.tex`, using the job title and JD from Step 1 to decide
+what to emphasize. Mark each changed bullet with a `% TAILORED:` comment as the rules describe.
+
+Compile to PDF:
+```bash
+bash scripts/build_cv.sh <slug>
+```
+
+If compilation fails, stop and show the error — do not proceed without a working PDF.
+
+---
+
 ## Step 3 — Draft email
 
 Only if a contact email was found.
@@ -138,17 +153,42 @@ These are for YOU to send manually. Open each URL, copy the text, hit Connect.
 
 ---
 
+## Step 5.5 — Write structured metadata
+
+Write `output/<slug>/meta.json` capturing everything gathered in Steps 1–5, so `generate_report.py` doesn't have to regex-parse the markdown:
+
+```json
+{
+  "website": "<url or null>",
+  "careers_url": "<url or null>",
+  "best_fit": "<job title>",
+  "apply_url": "<url or null>",
+  "fit_notes": ["+ <strength 1>", "+ <strength 2>", "- <gap 1>"],
+  "email": "<contact email or null>",
+  "contacts": [
+    {"title": "HR / Recruiter", "profile": "<url or null>", "job_title": "<title or null>", "connect_note": "<text or null>", "first_message": "<text or null>"},
+    {"title": "Team Lead", "profile": "<url or null>", "job_title": "<title or null>", "connect_note": "<text or null>", "first_message": "<text or null>"}
+  ],
+  "email_draft": {"to": "<email or null>", "subject": "<subject or null>", "body": "<body or null>"}
+}
+```
+
+Omit `email_draft` (or set to `null`) if Step 3 was skipped because no contact email was found.
+
+---
+
 ## Step 6 — Log state
 
+Only include a flag if you actually have a value (omit rather than pass the literal word `null`):
 ```bash
 python3 scripts/state.py add \
   --company "<company name>" \
   --slug "<slug>" \
   --job-title "<title>" \
-  --email-sent-to "<email or null>" \
+  --email-sent-to "<email>" \
   --status "drafted" \
-  --hr-url "<url or null>" \
-  --lead-url "<url or null>"
+  --hr-url "<url>" \
+  --lead-url "<url>"
 ```
 
 ---

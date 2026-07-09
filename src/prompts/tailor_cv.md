@@ -2,7 +2,7 @@
 
 Goal: adapt the candidate's LaTeX CV for a specific role (or leave as-is for general use).
 
-This prompt is used by `scripts/tailor_cv.py` as instructions for what to rewrite.
+Read `cv/main.tex` and this prompt, then write the tailored version directly to `output/<slug>/tailored_cv.tex` (Flow 1, Step 4).
 
 ## Rules
 
