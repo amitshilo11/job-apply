@@ -637,7 +637,7 @@ def generate_index(slugs):
     by_slug = {a["slug"]: a for a in apps}
 
     cards = ""
-    for slug in sorted(slugs):
+    for slug in sorted(slugs, key=lambda s: by_slug.get(s, {}).get("created_at", ""), reverse=True):
         if slug not in by_slug:
             continue
         a = by_slug[slug]
