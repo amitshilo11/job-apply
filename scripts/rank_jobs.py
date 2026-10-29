@@ -58,7 +58,7 @@ def score_job(job, ranking, known, skipped):
     hits = [(w, p) for w, p in ranking["title_points"].items() if w in title]
     if hits:
         score += sum(p for _, p in hits)
-        reasons.append("+ " + ", ".join(w for w, _ in hits) + " in the title")
+        reasons.append("+ " + ", ".join(w.strip() for w, _ in hits) + " in the title")
     loc = [(w, p) for w, p in ranking["location_points"].items() if w in where]
     if loc:
         best = max(loc, key=lambda x: x[1])

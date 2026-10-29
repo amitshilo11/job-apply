@@ -24,8 +24,14 @@ Commands:
   mark-sent    -- mark the email (or its next follow-up) as sent
   mark-task    -- record a manually-completed task (applied, connected_hr, messaged_lead...)
   queue        -- manage the discovery queue (sub-commands: add, list, next, remove, reset, stats)
+  slug         -- print the slug for a company name
+
+Every command holds a lock on the state files while it runs, so the dashboard server and a
+background run (scripts/runs.py) can write at the same time without losing each other's change.
 
 Usage examples:
+  python3 scripts/state.py slug "Wiz Inc."                      # -> wiz-inc
+
   python3 scripts/state.py add --company "Wiz" --slug "wiz" --job-title "Backend Engineer" \\
     --email-sent-to "careers@wiz.io" --status drafted
 
@@ -52,10 +58,12 @@ Usage examples:
 """
 
 import argparse
+import fcntl
 import json
 import os
 import re
 import sys
+from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -95,6 +103,11 @@ DEFAULT_SETTINGS = {
     "linkedin_note_monthly_limit": 5,
     "message_languages": ["en", "he"],
     "dashboard_port": 8765,
+    # Background runs (scripts/runs.py): stop a run after this long, notify when one ends,
+    # and the model to use (None = your Claude Code default)
+    "run_timeout_minutes": 40,
+    "notify_when_done": True,
+    "background_model": None,
 }
 
 
@@ -133,6 +146,24 @@ def _write_json(path, data):
         json.dump(data, f, indent=2, ensure_ascii=False, default=str)
         f.write("\n")
     os.replace(tmp, path)
+
+
+@contextmanager
+def state_lock(name="state"):
+    """Hold an exclusive lock while reading, changing and saving state files.
+
+    The dashboard server, this CLI and a background run's state.py calls can now run at the
+    same moment; without the lock two read-modify-writes can interleave and one change is
+    lost. Works across threads and processes (one flock per open). Don't nest the same name.
+    """
+    path = ROOT / "state" / f".{name}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def load_state():
@@ -606,6 +637,10 @@ def compute_stats(entries, today, settings, days=None):
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
+
+def cmd_slug(args):
+    print(slugify(args.name))
+
 
 def cmd_skip(args):
     entries = load_skipped()
@@ -1207,6 +1242,10 @@ def main():
 
     queue_sub.add_parser("stats", help="Show queue statistics")
 
+    # slug
+    p_slug = sub.add_parser("slug", help="Print the slug for a company name")
+    p_slug.add_argument("name")
+
     args = parser.parse_args()
 
     commands = {
@@ -1214,13 +1253,14 @@ def main():
         "close-thread": cmd_close_thread, "today": cmd_today, "stats": cmd_stats, "show": cmd_show,
         "list-due": cmd_list_due, "list-all": cmd_list_all, "mark-sent": cmd_mark_sent,
         "update": cmd_update, "mark-task": cmd_mark_task, "close-all": cmd_close_all,
-        "migrate": cmd_migrate, "queue": cmd_queue,
+        "migrate": cmd_migrate, "queue": cmd_queue, "slug": cmd_slug,
     }
     handler = commands.get(args.command)
     if not handler:
         parser.print_help()
         sys.exit(1)
-    handler(args)
+    with state_lock():
+        handler(args)
 
 
 if __name__ == "__main__":
