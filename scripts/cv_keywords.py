@@ -13,6 +13,7 @@ jd_text, else the snippet in research.md.
 Usage:
   python3 scripts/cv_keywords.py --slug acme                  # pick + compare, saves to meta.json
   python3 scripts/cv_keywords.py --slug acme --title "Mobile Engineer" --no-write
+  python3 scripts/cv_keywords.py --slug acme --tailored     # after improving output/acme/tailored_cv.tex
   python3 scripts/cv_keywords.py --jd-file jd.txt --cv cv/main.tex
 """
 
@@ -128,6 +129,8 @@ def main():
     parser.add_argument("--title", help="Job title (default: from state / meta.json)")
     parser.add_argument("--jd-file", help="Read the job description from this file instead")
     parser.add_argument("--cv", help="Compare against this .tex instead of picking a variant")
+    parser.add_argument("--tailored", action="store_true",
+                        help="Use output/<slug>/tailored_cv.tex: this role's improved CV becomes the one to send")
     parser.add_argument("--no-write", action="store_true", help="Don't save the result to meta.json")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -141,7 +144,12 @@ def main():
     entry = find_entry(load_state(), args.slug) if args.slug else None
     title = args.title or (entry or {}).get("job_title") or (meta or {}).get("job_title") or (meta or {}).get("best_fit") or ""
 
-    if args.cv:
+    if args.tailored:
+        if not args.slug:
+            parser.error("--tailored needs --slug")
+        tex = f"output/{args.slug}/tailored_cv.tex"
+        name, variant, note = "tailored", {"tex": tex, "pdf": tex[:-4] + ".pdf"}, ""
+    elif args.cv:
         name, variant, note = Path(args.cv).stem, {"tex": args.cv, "pdf": str(Path(args.cv).with_suffix(".pdf"))}, ""
     else:
         name, variant, note = pick_variant(title, jd, settings)
@@ -160,11 +168,12 @@ def main():
         "jd_found": bool(jd.strip()),
     }
     if result["pdf"] and not (ROOT / result["pdf"]).exists():
-        build = "--base" if result["tex"] == "cv/main.tex" else f"--variant {name}"
+        build = (args.slug if args.tailored else "--base" if result["tex"] == "cv/main.tex"
+                 else f"--variant {name}")
         result["build_hint"] = f"bash scripts/build_cv.sh {build}"
 
     if args.slug and meta is not None and not args.no_write:
-        meta["cv"] = f"variant:{name}" if name != "base" else "base"
+        meta["cv"] = "tailored" if args.tailored else (f"variant:{name}" if name != "base" else "base")
         meta["cv_file"] = result["pdf"]
         meta["cv_keywords"] = {k: result[k] for k in ("variant", "tex", "matched", "missing", "note")}
         save_meta(args.slug, meta)

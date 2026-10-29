@@ -355,7 +355,25 @@ body.offline .offline-banner{display:flex;gap:.6rem;align-items:center;flex-wrap
 .chip.have{background:#d1fae5;color:#065f46}.chip.missing{background:#fee2e2;color:#991b1b}
 """
 
-REPORT_CSS = """
+FORM_CSS = """
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:50}
+.modal{background:#fff;border-radius:16px;padding:1.3rem;width:92%;max-width:380px}
+.modal h3{margin-bottom:.6rem}
+.modal label{display:block;font-size:.88rem;margin:.3rem 0}
+.modal textarea{width:100%;border:1px solid #e5e5ea;border-radius:8px;padding:.5rem;font-family:inherit;font-size:.85rem;min-height:56px;margin-top:.5rem}
+.modal-actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.8rem}
+.spinner{width:.85rem;height:.85rem;border:2px solid #dbeafe;border-top-color:#0071e3;border-radius:50%;display:inline-block;animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.modal-wide{max-width:560px;max-height:92vh;overflow:auto}
+.modal .field{display:block;font-size:.8rem;font-weight:600;color:#3a3a3c;margin:.7rem 0 0}
+.modal input[type=text],.modal input[type=url],.modal input[type=email]{width:100%;border:1px solid #e5e5ea;border-radius:8px;padding:.45rem .55rem;font-family:inherit;font-size:.88rem;font-weight:400;margin-top:.25rem}
+.modal .field textarea{font-weight:400;margin-top:.25rem}
+.form-note{font-size:.84rem;color:#6e6e73}
+.form-section{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#6e6e73;margin:1.1rem 0 0}
+.modal .check{display:flex;gap:.45rem;align-items:center;font-size:.86rem;margin:.5rem 0 0}
+"""
+
+REPORT_CSS = FORM_CSS + """
 .head-top{display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap}
 .head-badges{display:flex;gap:.35rem;flex-wrap:wrap}
 .role-link{font-weight:600;text-decoration:none}
@@ -380,6 +398,8 @@ REPORT_CSS = """
 .sources{font-size:.78rem;color:#8e8e93;margin-top:.6rem;word-break:break-all}
 .contact{border:1px solid #e5e5ea;border-radius:12px;padding:1rem 1.1rem;margin-bottom:1rem}
 .contact.missing{background:#fafafa}
+.person-form{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem}
+.person-form input{flex:1 1 150px;border:1px solid #e5e5ea;border-radius:8px;padding:.4rem .55rem;font-family:inherit;font-size:.85rem}
 .contact-head{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap}
 .contact-kind{font-size:.7rem;font-weight:800;color:#6e6e73;text-transform:uppercase;letter-spacing:.07em}
 .contact-sub{font-size:.85rem;color:#6e6e73}
@@ -407,9 +427,17 @@ details.alternates li{margin:.35rem 0 0 1rem}
 .timeline .d{color:#8e8e93;display:inline-block;width:6.5rem}
 .prep-q{margin-bottom:.6rem;font-size:.9rem}
 .prep-q .why{color:#6e6e73}
+.cv-buttons{display:flex;gap:.35rem;flex-wrap:wrap;align-items:center}
+.kw-checks{display:flex;flex-wrap:wrap;gap:0 1.1rem}
+.cv-run{border-radius:10px;padding:.6rem .8rem;margin-top:.6rem;font-size:.86rem;background:#f5f9ff;border:1px solid #dbeafe}
+.cv-run.failed,.cv-run.interrupted,.cv-run.cancelled{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+.cv-run .row{display:flex;justify-content:space-between;gap:.5rem;align-items:center;flex-wrap:wrap}
+.cv-run .title{display:flex;gap:.45rem;align-items:center;font-weight:600}
+.cv-run details{margin-top:.35rem}.cv-run summary{cursor:pointer;color:#0071e3}
+.cv-run pre{white-space:pre-wrap;font-family:inherit;font-size:.84rem;margin-top:.3rem}
 """
 
-INDEX_CSS = """
+INDEX_CSS = FORM_CSS + """
 .top{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:.5rem;margin-bottom:1.25rem}
 .subtitle{color:#6e6e73;font-size:.88rem}
 .group-title{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#6e6e73;margin:1rem 0 .4rem}
@@ -451,12 +479,6 @@ INDEX_CSS = """
 .reason{color:#dc2626;font-weight:600}
 .details{color:#6e6e73;font-size:.8rem}
 .empty{color:#6e6e73;font-style:italic}
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;z-index:50}
-.modal{background:#fff;border-radius:16px;padding:1.3rem;width:92%;max-width:380px}
-.modal h3{margin-bottom:.6rem}
-.modal label{display:block;font-size:.88rem;margin:.3rem 0}
-.modal textarea{width:100%;border:1px solid #e5e5ea;border-radius:8px;padding:.5rem;font-family:inherit;font-size:.85rem;min-height:56px;margin-top:.5rem}
-.modal-actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.8rem}
 .btn-big{padding:.5rem 1rem;font-size:.88rem}
 .run{padding:.75rem 0;border-bottom:1px solid #f0f0f0}
 .run:last-child{border-bottom:none}
@@ -473,22 +495,13 @@ INDEX_CSS = """
 .run details summary{cursor:pointer;color:#0071e3}
 .run pre{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;background:#f5f5f7;border-radius:8px;padding:.6rem .75rem;margin-top:.4rem}
 .run-hint{font-size:.78rem;color:#8e8e93;margin-top:.35rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap}
-.spinner{width:.85rem;height:.85rem;border:2px solid #dbeafe;border-top-color:#0071e3;border-radius:50%;display:inline-block;animation:spin .8s linear infinite;flex:none}
-@keyframes spin{to{transform:rotate(360deg)}}
 .runs-problem{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:.6rem .8rem;font-size:.85rem;margin-bottom:.5rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
 .runs-problem[hidden],.form-warning[hidden]{display:none}
-.modal-wide{max-width:560px;max-height:92vh;overflow:auto}
-.modal .field{display:block;font-size:.8rem;font-weight:600;color:#3a3a3c;margin:.7rem 0 0}
-.modal input[type=text],.modal input[type=url],.modal input[type=email]{width:100%;border:1px solid #e5e5ea;border-radius:8px;padding:.45rem .55rem;font-family:inherit;font-size:.88rem;font-weight:400;margin-top:.25rem}
-.modal .field textarea{font-weight:400;margin-top:.25rem}
-.form-note{font-size:.84rem;color:#6e6e73}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
-.form-section{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#6e6e73;margin:1.1rem 0 0}
 .person{margin-top:.55rem}
 .person-kind{font-size:.8rem;font-weight:600;color:#3a3a3c}
 .person-fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.4rem}
 .person-fields .wide{grid-column:1/-1}
-.modal .check{display:flex;gap:.45rem;align-items:center;font-size:.86rem;margin:.5rem 0 0}
 .modal details.paste{margin-top:.5rem;font-size:.84rem}
 .modal details.paste summary{cursor:pointer;color:#0071e3}
 .form-warning{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:.5rem .7rem;font-size:.84rem;margin-top:.7rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
@@ -547,7 +560,10 @@ document.addEventListener('click', function(e) {
     var p = {slug: d.slug, key: d.key, event: d.event};
     if (d.lang) p.lang = d.lang;
     if (d.note) p.with_note = d.note === '1';
-    if (d.box) { p.text = boxText(d.box); p.field = d.field; }
+    if (d.box) {
+      p.text = boxText(d.box); p.field = d.field;
+      if (p.text.indexOf('{name}') !== -1 && !confirm('The message still says {name}. Mark it sent anyway?')) return;
+    }
     if (d.undo) p.undo = true;
     return post('event', p);
   }
@@ -558,6 +574,15 @@ document.addEventListener('click', function(e) {
     if (d.ask) { note = window.prompt(d.ask, ''); if (note === null) return; }
     return post('stage', {slug: d.slug, stage: d.stage, note: note});
   }
+});
+document.addEventListener('submit', function(e) {
+  var form = e.target.closest('.person-form');
+  if (!form) return;
+  e.preventDefault();
+  if (!SERVED) return showOffline();
+  var f = form.elements;
+  post('person', {slug: form.dataset.slug, key: form.dataset.key, name: f.name.value.trim(),
+                  name_he: f.name_he.value.trim(), profile: f.profile.value.trim()});
 });
 document.addEventListener('DOMContentLoaded', function() {
   if (!SERVED) { document.body.classList.add('offline'); return; }
@@ -578,6 +603,99 @@ document.addEventListener('DOMContentLoaded', function() {
     sessionStorage.removeItem('ja-toast');
     showToast(toast);
   }
+});
+"""
+
+REPORT_JS = r"""
+var CV = {timer: null, active: false};
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
+    return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c];
+  });
+}
+function openCvForm() {
+  if (!SERVED) return showOffline();
+  document.getElementById('cv-modal').style.display = 'flex';
+}
+function closeCvForm() { document.getElementById('cv-modal').style.display = 'none'; }
+function cvRunAct(action, id) {
+  fetch('/api/' + action, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Job-Agent': '1'},
+                           body: JSON.stringify({id: id})})
+    .then(function(r) { return r.json(); })
+    .then(function(res) { if (!res.ok) throw new Error(res.error || 'failed'); refreshCvRun(); })
+    .catch(function(err) { alert('Could not do that: ' + err.message); });
+}
+// The latest Improve CV run for this application, shown above the PDF until you hide it
+function refreshCvRun() {
+  var box = document.getElementById('cv-run');
+  if (!box || !SERVED) return;
+  clearTimeout(CV.timer);
+  fetch('/api/runs').then(function(r) { return r.json(); }).then(function(data) {
+    var run = (data.runs || []).filter(function(r) { return r.kind === 'cv' && r.slug === box.dataset.slug; })[0];
+    var active = !!run && (run.status === 'queued' || run.status === 'running');
+    if (CV.active && !active) {
+      sessionStorage.setItem('ja-toast', run && run.status === 'done' ? 'The improved CV is ready.' : 'The CV run stopped.');
+      return location.reload();
+    }
+    CV.active = active;
+    if (!run) { box.hidden = true; return; }
+    var s = run.status, title, body = '', btns = '', hide = '<button class="btn btn-quiet" data-cv-act="run-dismiss" data-id="' + esc(run.id) + '">Hide</button>';
+    if (s === 'queued') {
+      title = '⏳ Improve CV: ' + (run.position > 1 ? 'waiting, another run is going' : 'starting…');
+      btns = '<button class="btn btn-quiet" data-cv-act="run-cancel" data-id="' + esc(run.id) + '">Cancel</button>';
+    } else if (s === 'running') {
+      var parts = ['<span class="spinner"></span>Improving the CV'];
+      if (run.step) parts.push('step ' + esc(run.step.n) + ' of ' + esc(run.steps) + ': ' + esc(run.step.text));
+      if (run.activity) parts.push(esc(run.activity));
+      title = parts.join(' · ');
+      btns = run.stopping ? '' : '<button class="btn btn-quiet" data-cv-act="run-cancel" data-id="' + esc(run.id) + '">Cancel</button>';
+    } else if (s === 'done') {
+      title = '✓ CV improved';
+      if (run.summary) body = '<details open><summary>What changed</summary><pre>' + esc(run.summary) + '</pre></details>';
+      btns = hide;
+    } else if (s === 'needs_input') {
+      title = '❓ Claude has a question about the CV';
+      body = '<pre>' + esc(run.question || run.summary || '') + '</pre><a href="../index.html">Answer it on the dashboard</a>';
+      btns = hide;
+    } else {
+      title = s === 'cancelled' ? 'Improve CV: cancelled' : '✗ Improving the CV stopped';
+      if (run.error) body = '<pre>' + esc(run.error) + '</pre>';
+      btns = '<button class="btn btn-light" data-cv-act="run-retry" data-id="' + esc(run.id) + '">Retry</button>' + hide;
+    }
+    box.className = 'cv-run ' + s;
+    box.innerHTML = '<div class="row"><div class="title">' + title + '</div><div class="cv-buttons">' + btns + '</div></div>' + body;
+    box.hidden = false;
+    if (active) CV.timer = setTimeout(refreshCvRun, 3000);
+  }).catch(function() { CV.timer = setTimeout(refreshCvRun, 10000); });
+}
+document.addEventListener('click', function(e) {
+  if (e.target.closest('[data-act="improve-cv"]')) return openCvForm();
+  var b = e.target.closest('[data-cv-act]');
+  if (b) cvRunAct(b.dataset.cvAct, b.dataset.id);
+});
+document.addEventListener('DOMContentLoaded', function() {
+  var form = document.getElementById('cv-form'), modal = document.getElementById('cv-modal');
+  if (!form) return;
+  document.getElementById('cv-cancel').addEventListener('click', closeCvForm);
+  modal.addEventListener('click', function(e) { if (e.target === modal) closeCvForm(); });
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    var keywords = Array.prototype.map.call(form.querySelectorAll('input[name=kw]:checked'), function(x) { return x.value; });
+    var btn = form.querySelector('[type=submit]');
+    btn.disabled = true;
+    fetch('/api/run-start', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Job-Agent': '1'},
+      body: JSON.stringify({kind: 'cv', slug: form.dataset.slug, keywords: keywords, notes: form.elements.notes.value.trim()})})
+      .then(function(r) { return r.json(); })
+      .then(function(res) {
+        if (!res.ok) throw new Error(res.error || 'failed');
+        closeCvForm(); form.reset();
+        showToast('Started. The improved CV shows up here when it\'s ready.', 4500);
+        CV.active = true; refreshCvRun();
+      })
+      .catch(function(err) { alert('Could not start: ' + err.message); })
+      .then(function() { btn.disabled = false; });
+  });
+  refreshCvRun();
 });
 """
 
@@ -619,14 +737,17 @@ function h(s) {
   });
 }
 function shellQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
-function runName(run) { return run.company ? run.company + (run.job_title ? ' — ' + run.job_title : '') : run.label; }
+function runName(run) {
+  if (run.kind === 'cv') return run.label;
+  return run.company ? run.company + (run.job_title ? ' — ' + run.job_title : '') : run.label;
+}
 function minutes(seconds) { var m = Math.floor(seconds / 60); return m < 1 ? 'under a minute' : m + ' min'; }
 function runBtn(label, act, run, cls, extra) {
   return '<button class="btn ' + (cls || '') + '" data-run-act="' + act + '" data-id="' + h(run.id) + '"' +
     (extra || '') + '>' + h(label) + '</button>';
 }
 function fitBadge(run) {
-  if (!run.fit_score) return '';
+  if (!run.fit_score || run.kind === 'cv') return '';
   var cls = run.fit_score >= 4 ? 'badge-green' : run.fit_score == 3 ? 'badge-blue' : 'badge-amber';
   return '<span class="badge ' + cls + '">Fit ' + h(run.fit_score) + '/5</span>';
 }
@@ -1172,6 +1293,9 @@ def contact_block(slug, contact, key, thread, tstate, settings, idx):
     profile_html = (f'<a href="{esc(profile)}" target="_blank" style="font-size:.85rem">LinkedIn profile ↗</a>'
                     if profile else '<span class="skipped-note">No profile link</span>')
     title_html = esc(name) if name else esc(contact.get("title") or kind_label)
+    if st.needs_name(contact):
+        badges_html = " " + badge("badge-amber", "name to fill in")
+        profile_html = person_form(slug, key, any(st.NAME_SLOT in (contact.get(f) or "") for f in st.MESSAGE_FIELDS))
     why = f'<div class="why">{esc(contact.get("why"))}</div>' if contact.get("why") else ""
 
     ev = (thread or {}).get("events") or {}
@@ -1286,6 +1410,20 @@ def contact_block(slug, contact, key, thread, tstate, settings, idx):
   {"".join(steps)}
   {alt_html}
 </div>"""
+
+
+def person_form(slug, key, has_slot):
+    """For a slot nobody was found for: the user finds the person and fills them in."""
+    where = (f"The messages say <code>{esc(st.NAME_SLOT)}</code> where the first name goes: fill the person "
+             "in here and they update, or change the name in a message before you copy it."
+             if has_slot else "Fill the person in here once you find them, so you know who you wrote to.")
+    return f"""<div class="hint">Nobody found yet (LinkedIn searches at the bottom of this card). {where}</div>
+<form class="person-form" data-slug="{esc(slug)}" data-key="{esc(key)}" autocomplete="off">
+  <input type="text" name="name" placeholder="Full name" required maxlength="200">
+  <input type="text" name="name_he" placeholder="First name in Hebrew (optional)" maxlength="200" dir="auto">
+  <input type="url" name="profile" placeholder="LinkedIn URL (optional)" maxlength="500">
+  <button class="btn" type="submit">Save</button>
+</form>"""
 
 
 def people_card(slug, entry, data, settings, today):
@@ -1412,10 +1550,39 @@ def cv_card(slug, data):
                    + "".join(f'<span class="chip missing">{esc(x)}</span>' for x in kw.get("missing") or [])
                    + "".join(f'<span class="chip have">{esc(x)}</span>' for x in kw.get("matched") or [])
                    + "</div>")
-    return f"""<div class="card">
-  <div class="section-title">{esc(title)}<a class="btn btn-light" href="{esc(href)}" download>Download PDF</a></div>
+    improve = button("Improve CV", {"data-act": "improve-cv"}, "btn")
+    return f"""<div class="card" id="cv">
+  <div class="section-title">{esc(title)}<span class="cv-buttons">{improve}<a class="btn btn-light" href="{esc(href)}" download>Download PDF</a></span></div>
   {kw_html}
+  <div id="cv-run" class="cv-run" data-slug="{esc(slug)}" hidden></div>
   <iframe class="pdf-frame" src="{esc(href)}"></iframe>
+</div>
+{cv_form_html(slug, kw.get("missing") or [])}"""
+
+
+def cv_form_html(slug, missing):
+    """The Improve CV form: pick the job's keywords that are true for you, say what else to change."""
+    if missing:
+        checks = "".join(f'<label class="check"><input type="checkbox" name="kw" value="{esc(k)}"> {esc(k)}</label>'
+                         for k in missing)
+        keywords = ('<div class="form-section">Keywords to add</div>'
+                    '<p class="form-note">From the job, not on this CV yet. Tick only the ones that are true for you.</p>'
+                    f'<div class="kw-checks">{checks}</div>')
+    else:
+        keywords = '<p class="form-note">Every keyword from the job is already on this CV.</p>'
+    return f"""<div id="cv-modal" class="modal-overlay">
+  <form class="modal modal-wide" id="cv-form" data-slug="{esc(slug)}" autocomplete="off">
+    <h3>Improve the CV for this role</h3>
+    <p class="form-note">Claude rewrites the CV in the background and builds the PDF; you can close
+    this page. It never adds anything that isn't true, and the result replaces the CV shown here.</p>
+    {keywords}
+    <label class="field">What else to change (optional)
+      <textarea name="notes" maxlength="4000" placeholder="e.g. put the BLE work first, shorten the older jobs"></textarea></label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-quiet" id="cv-cancel">Cancel</button>
+      <button type="submit" class="btn">Improve</button>
+    </div>
+  </form>
 </div>"""
 
 
@@ -1499,7 +1666,8 @@ def generate_report(slug):
             interview_card(data),
             cv_card(slug, data),
             history_card(entry)]
-    html = page(f"{entry.get('company') or slug} — job application", REPORT_CSS, "\n".join(b for b in body if b))
+    html = page(f"{entry.get('company') or slug} — job application", REPORT_CSS, "\n".join(b for b in body if b),
+                REPORT_JS)
 
     out_path = os.path.join(out_dir, "report.html")
     write_page(out_path, html)

@@ -1,7 +1,8 @@
 # Prompt: Background run (started from the dashboard)
 
 A run from the dashboard's **+ New application** form (or `scripts/runs.py start`): Flow 3 with
-nobody watching. The user is somewhere else and only sees the dashboard, which shows your
+nobody watching. A run from a report's **Improve CV** button (or `scripts/runs.py cv`) follows
+the same rules, plus the "Improve CV runs" section at the end. The user is somewhere else and only sees the dashboard, which shows your
 `Step` lines while you work and your final result when you stop. So never ask and wait: follow
 `src/flow3.md` with the changes below, then end with the structured result.
 
@@ -58,3 +59,28 @@ End with the structured result the run asks for:
   and what's left.
 - `question` and `options`: only for `needs_input`. Options are short button labels; leave the
   list empty when the answer is free text.
+
+---
+
+## Improve CV runs
+
+The prompt names the application (`output/<slug>/`), the keywords the user picked and their
+instructions. Steps (print each `Step <n>: <what>` line):
+
+1. **Step 1: read.** `output/<slug>/meta.json`, `output/<slug>/jd.md`, `config/profile.md`, and
+   the CV to start from: `output/<slug>/tailored_cv.tex` if it exists (an earlier improvement:
+   build on it), else the version in `cv_keywords.tex` (default `cv/main.tex`).
+2. **Step 2: rewrite.** Write `output/<slug>/tailored_cv.tex` following
+   `src/prompts/tailor_cv.md`. The picked keywords are true for the user: add each one where it
+   fits honestly (the skills line, or a bullet that already describes that kind of work). Never
+   invent a project, employer, number or length of experience to make one fit; a keyword that
+   can't be placed honestly stays out, and the summary says so. The user's instructions win over
+   the style defaults in `tailor_cv.md`, never over its rules 1 and 2. Keep it to one page.
+3. **Step 3: build.** `bash scripts/build_cv.sh <slug>`. Fix LaTeX errors and build again.
+4. **Step 4: record.** `python3 scripts/cv_keywords.py --slug <slug> --tailored` (the improved CV
+   becomes the one to send for this role, and the keyword list is checked again), then
+   `python3 scripts/generate_report.py <slug>`.
+
+Result: `done` with a short summary: what changed, the keywords added, any left out and why.
+`failed` when the PDF won't build. No `needs_input`: an unclear instruction gets the reasonable
+reading, said in the summary.

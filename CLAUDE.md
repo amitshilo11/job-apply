@@ -12,6 +12,7 @@ flow. Read the relevant flow file before acting; don't guess at the steps from m
 |---|---|
 | `process role <url>`, `apply for <title> at <Company>`, a pasted job page or a job screenshot | `src/flow3.md` — **the main flow** |
 | `run <url> in the background`, `queue this role for the dashboard` | `python3 scripts/runs.py start --url <url>` (`--hr`/`--lead`/`--knows "Name \| URL \| email"`, `--notes`): Flow 3 headless, shown on the dashboard |
+| `improve the CV for <Company>`, `add Kotlin to my CV for wiz` (in the background) | `python3 scripts/runs.py cv --slug <slug> --add <keyword> --notes "..."`: rewrites `output/<slug>/tailored_cv.tex` (`src/prompts/tailor_cv.md`), shown on the report |
 | `what's today`, `show follow-ups`, `check due`, `draft follow-ups` | `src/flow1.md` (Follow-up sub-flow, near the end) |
 | `find jobs`, `check job alerts`, `watch <Company>` | `src/flow4.md` |
 | `got an interview at <Company>` | `src/prompts/interview_prep.md` |
@@ -77,11 +78,12 @@ python3 scripts/state.py event --slug wiz --key lead --event replied
 python3 scripts/state.py update --slug wiz --stage interview --note "phone screen Tue"
 python3 scripts/state.py today          # what's due (also auto-closes finished threads)
 python3 scripts/state.py show --slug wiz
+python3 scripts/state.py person --slug wiz --key hr --name "Noa Cohen" --name-he "נועה"   # fills {name} in
 python3 scripts/samples.py add --slug wiz --key hr --field connect_note_he --text "..."   # what was really sent
 ```
 
 When the user tells you what happened ("I sent the connect note to Noa", "Wiz rejected me",
-"the lead at Snyk replied", "got an interview at Cato"), run the matching command yourself
+"the lead at Snyk replied", "got an interview at Cato", "the HR at Wiz is Noa Cohen"), run the matching command yourself
 (and `samples.py add` if they paste the text they sent), then `python3 scripts/generate_report.py <slug>`.
 
 ## Output per application
@@ -97,6 +99,11 @@ Regenerate after bulk changes: `python3 scripts/generate_report.py --all`.
 `claude -p` (the CLI's own login) on Flow 3 with the rules in `src/prompts/background_run.md`,
 one run at a time, writing only under `output/` and changing state only through the scripts.
 The dashboard shows each run's progress, its question when it needs the user, and the result.
+A report's **Improve CV** button starts the other kind of run: the CV rewritten for that role
+with the job keywords the user ticked (true for them) and their instructions.
+
+No HR or team lead found: the slot still gets its messages, with `{name}` where the first name
+goes. The user fills the person in from the report (or `state.py person`) and tracks it as usual.
 
 ## Conventions
 

@@ -12,7 +12,8 @@ Errors (fix before saving or sending):
   - saying an email or application was already sent when the state says it wasn't
   - the recipient's own email address in a message to them
   - talking about the recipient in third person (a message to Noa that says "I emailed Noa")
-  - greeting a different name than the contact's, placeholders left in ([name], <company>)
+  - greeting a different name than the contact's, placeholders left in ([name], <company>);
+    {name} is fine only for a slot nobody was found for (the user fills the name in)
   - dashes used as separators (" - ", "—"), bullet lists
   - a Hebrew field that isn't Hebrew, or an English field with Hebrew in it
 Warnings (worth a look): long first messages and emails, lowercase "i" / "tbh" (not in your
@@ -76,8 +77,8 @@ HEB = re.compile(r"[֐-׿]")
 LATIN = re.compile(r"[A-Za-z]")
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 URL_RE = re.compile(r"https?://\S+")
-GREETING_EN = re.compile(r"^\s*(?:hey|hi|hello|dear)[\s,]+([A-Za-z][\w'-]*)", re.IGNORECASE)
-GREETING_HE = re.compile(r"^\s*(?:היי|הי|שלום|אהלן)[\s,]+([֐-׿][֐-׿'\"-]*)")
+GREETING_EN = re.compile(r"^\s*(?:hey|hi|hello|dear)\s+([A-Za-z][\w'-]*)", re.IGNORECASE)
+GREETING_HE = re.compile(r"^\s*(?:היי|הי|שלום|אהלן)\s+([֐-׿][֐-׿'\"-]*)")
 CLAIM_EN = re.compile(
     r"\b(?:sent|emailed|dropped|shot)\b[^.!?\n]{0,40}\b(?:email|e-mail|mail|note|cv|resume|application|inbox)\b"
     r"|\bapplied\b[^.!?\n]{0,30}\b(?:through|via|on|online)\b"
@@ -87,6 +88,8 @@ PLACEHOLDER_RE = re.compile(r"\[[^\]\n]{1,40}\]|<[^>\n]{1,40}>|\{[^}\n]{1,40}\}|
                             re.IGNORECASE)
 SLOT_RE = re.compile(r"\[[^\]\n]{1,40}\]")
 LOWER_I = re.compile(r"(?<![\w'’])i(?=[\s,.!?'’]|$)")
+# A typical first name, standing in for {name} in the length and placeholder checks
+SLOT_FILLER = {"en": "Alexandra", "he": "אלכסנדרה"}
 
 
 def load_samples_text():
@@ -196,6 +199,9 @@ def _name_pattern(name, hebrew):
 def check_message(m, ctx, settings, samples_raw, counts):
     issues = []
     text, lang, kind = m["text"], m["lang"], m["kind"]
+    contact = m.get("contact") or {}
+    if contact and st.needs_name(contact):
+        text = text.replace(st.NAME_SLOT, SLOT_FILLER[lang])
     low = text.lower()
     samples = samples_raw.lower()
 
@@ -268,7 +274,6 @@ def check_message(m, ctx, settings, samples_raw, counts):
             add("error", f"says something was already sent, but it wasn't: \"{snippet(text, claim.start(), claim.end())}\"")
 
     # Email addresses in LinkedIn messages
-    contact = m.get("contact") or {}
     name = (contact.get("name") or "").strip()
     first_en = name.split()[0] if name else ""
     last_en = name.split()[-1] if len(name.split()) > 1 else ""

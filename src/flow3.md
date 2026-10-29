@@ -101,7 +101,8 @@ None found: no email, LinkedIn is the channel. Put it in meta.json `email`.
 ## Step 7 — Messages
 
 Read `src/prompts/draft_linkedin.md` and `src/prompts/draft_email.md`, every time. Draft the
-Hebrew version first, then the English. Write them into meta.json (`contacts[*]` message
+Hebrew version first, then the English. An HR or lead slot with nobody found still gets its
+messages, with `{name}` for the first name (`src/prompts/find_contacts.md` §6). Write them into meta.json (`contacts[*]` message
 fields, `email_draft`), then run:
 
 ```bash

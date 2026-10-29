@@ -126,3 +126,8 @@ For each contact in `meta.json` → `contacts`:
 - Nobody good found for a slot: still add the slot with `"profile": null, "name": null` and
   `"why": "not found: <what you tried>"`. The report shows LinkedIn search links (recruiters,
   mobile leads, everyone at the company in Israel) so the user can find someone in seconds.
+- An HR or team lead slot with nobody found still gets its messages (connect note and first
+  message, both languages), written to that role with `{name}` where the first name goes
+  (`Hi {name},` / `היי {name},`). The user finds the person, fills the name in from the report
+  (or `python3 scripts/state.py person --slug <slug> --key hr --name "..."`), and tracks the
+  thread like any other.

@@ -165,7 +165,23 @@ From a terminal, or by asking Claude "run this in the background":
 python3 scripts/runs.py start --url <job url> --hr "Dana Cohen | https://linkedin.com/in/... | dana@acme.com"
 python3 scripts/runs.py list                 # recent runs
 python3 scripts/runs.py work                 # run the queue here and watch it
+python3 scripts/runs.py cv --slug acme --add Kotlin --notes "put the BLE work first"
 ```
+
+### Improve the CV for a role
+
+On a report, the CV card lists the job's keywords; red ones aren't on your CV. **Improve CV**
+opens a form: tick the red ones that are true for you, optionally say what else to change, and
+Claude rewrites the CV for this role in the background (`output/<slug>/tailored_cv.tex`, built
+to PDF). Progress shows on the CV card; when it's done, the improved CV is the one shown and
+attached for this role, with a summary of what changed. Click it again to improve further.
+
+### Nobody found for HR or team lead
+
+The messages are still drafted, with `{name}` where the first name goes. When you find the
+person, fill in their name (and LinkedIn link) on the report and the messages update, or just
+change the name in the message box before you copy it. Either way, the Sent buttons track that
+person like anyone else.
 
 You can also just tell Claude: "sent the connect note to Noa in Hebrew", "Dan accepted",
 "Acme rejected me" (or `/sent ...`), and it records it.
@@ -278,7 +294,7 @@ fall back to your CV bullets, marked "fill in".
 |---|---|
 | `state.py` | Applications, per-person threads, `today`, `stats`, `event`, `update`, `show`, queue |
 | `serve.py` | The dashboard server (buttons that save, New application) |
-| `runs.py` | Background runs: Flow 3 started from the dashboard, done by `claude -p` |
+| `runs.py` | Background runs: Flow 3 and Improve CV started from the dashboard, done by `claude -p` |
 | `generate_report.py` | Builds `output/<slug>/report.html` and `output/index.html` |
 | `check_messages.py` | The message checker |
 | `samples.py` | Records what you sent and learns from your edits |

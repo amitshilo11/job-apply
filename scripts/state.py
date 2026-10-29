@@ -10,6 +10,7 @@ work days (Sun–Thu by default, `work_days` in config/settings.json).
 Commands:
   add          -- append a new application entry (threads are built from meta.json if present)
   sync         -- rebuild an application's threads from output/<slug>/meta.json, keeping progress
+  person       -- fill in the person for a slot drafted with {name} (nobody was found for it)
   event        -- record a step for one person (connect_sent, accepted, message_sent, followup_1...)
   close-thread -- stop following up with one person (--undo reopens)
   today        -- what to do today: messages to send, follow-ups due, things to check
@@ -37,6 +38,8 @@ Usage examples:
 
   python3 scripts/state.py event --slug wiz --key hr --event connect_sent --lang he
   python3 scripts/state.py event --slug wiz --key hr --event connect_sent --lang en --no-note
+  python3 scripts/state.py person --slug wiz --key hr --name "Noa Cohen" --name-he "נועה" \\
+    --profile "https://www.linkedin.com/in/noa-cohen/"
   python3 scripts/state.py event --slug wiz --key lead --event accepted
   python3 scripts/state.py event --slug wiz --key lead --event message_sent --lang he
   python3 scripts/state.py event --slug wiz --key email --event sent
@@ -92,6 +95,9 @@ CLOSE_REASONS = {
 }
 KIND_LABELS = {"hr": "HR / recruiter", "lead": "Team lead", "referral": "Referral",
                "email": "Email", "other": "Contact"}
+# Where the first name goes in messages drafted for a slot nobody was found for
+NAME_SLOT = "{name}"
+MESSAGE_FIELDS = ("connect_note", "connect_note_he", "first_message", "first_message_he")
 
 DEFAULT_SETTINGS = {
     "followup_days": 5,
@@ -276,11 +282,16 @@ def _has_person(contact):
     return bool(profile or name)
 
 
+def _has_draft(contact):
+    return any(_clean(contact.get(f)) for f in MESSAGE_FIELDS)
+
+
 def contact_keys(contacts):
-    """Thread key for each meta.json contact, in order (None for "not found" contacts)."""
+    """Thread key for each meta.json contact, in order. None for a "not found" contact with no
+    messages; one drafted with {name} gets a thread, so it's tracked like anyone else."""
     keys, used = [], set()
     for i, c in enumerate(contacts or []):
-        if not _has_person(c):
+        if not (_has_person(c) or _has_draft(c)):
             keys.append(None)
             continue
         kind = contact_kind(c)
@@ -290,6 +301,40 @@ def contact_keys(contacts):
         used.add(key)
         keys.append(key)
     return keys
+
+
+def needs_name(contact):
+    """A slot drafted with {name}: nobody found yet, the user fills the person in."""
+    return not _clean(contact.get("name")) and _has_draft(contact)
+
+
+def fill_name(text, first_name):
+    return text.replace(NAME_SLOT, first_name) if text else text
+
+
+def set_person(meta, key, name, name_he=None, profile=None):
+    """Put the person the user found into a contact slot, and their first name into its
+    messages in place of {name}. Returns the contact."""
+    contacts = (meta or {}).get("contacts") or []
+    contact = next((c for c, k in zip(contacts, contact_keys(contacts)) if k == key), None)
+    if contact is None:
+        raise ValueError(f"no contact '{key}'")
+    name, name_he, profile = _clean(name), _clean(name_he), _clean(profile)
+    if not name:
+        raise ValueError("Write the person's name")
+    first = {"en": name.split()[0], "he": (name_he or name).split()[0]}
+    for field in MESSAGE_FIELDS:
+        contact[field] = fill_name(contact.get(field), first["he" if field.endswith("_he") else "en"])
+    for f in contact.get("followups") or []:
+        f["text"], f["text_he"] = fill_name(f.get("text"), first["en"]), fill_name(f.get("text_he"), first["he"])
+    contact.update(key=key, name=name, source="you", confidence="high")
+    if str(contact.get("why") or "").lower().startswith("not found"):
+        contact["why"] = "You found them."
+    if name_he:
+        contact["name_he"] = name_he
+    if profile:
+        contact["profile"] = profile
+    return contact
 
 
 def sync_threads(entry, meta):
@@ -708,6 +753,22 @@ def cmd_sync(args):
     save_state(entries)
     print(f"Synced {entry['company']}: " + (", ".join(
         f"{t['key']} ({t.get('name') or t.get('profile') or t.get('to')})" for t in threads) or "no people"))
+
+
+def cmd_person(args):
+    entries = load_state()
+    meta = load_meta(args.slug)
+    try:
+        contact = set_person(meta, args.key, args.name, args.name_he, args.profile)
+    except ValueError as err:
+        print(f"ERROR: {err}", file=sys.stderr)
+        sys.exit(1)
+    save_meta(args.slug, meta)
+    entry = find_entry(entries, args.slug)
+    if entry:
+        sync_threads(entry, meta)
+        save_state(entries)
+    print(f"{args.slug} / {args.key}: {contact['name']}. The messages now use their name.")
 
 
 def cmd_event(args):
@@ -1151,6 +1212,14 @@ def main():
     p_sync = sub.add_parser("sync", help="Rebuild outreach threads from output/<slug>/meta.json")
     p_sync.add_argument("--slug", required=True)
 
+    # person
+    p_person = sub.add_parser("person", help="Fill in the person for a slot drafted with {name}")
+    p_person.add_argument("--slug", required=True)
+    p_person.add_argument("--key", required=True, help="Thread key: hr, lead...")
+    p_person.add_argument("--name", required=True, help="Full name")
+    p_person.add_argument("--name-he", help="First name in Hebrew letters")
+    p_person.add_argument("--profile", help="LinkedIn profile URL")
+
     # event
     p_event = sub.add_parser("event", help="Record a step for one person")
     p_event.add_argument("--slug", required=True)
@@ -1249,7 +1318,7 @@ def main():
     args = parser.parse_args()
 
     commands = {
-        "skip": cmd_skip, "add": cmd_add, "sync": cmd_sync, "event": cmd_event,
+        "skip": cmd_skip, "add": cmd_add, "sync": cmd_sync, "person": cmd_person, "event": cmd_event,
         "close-thread": cmd_close_thread, "today": cmd_today, "stats": cmd_stats, "show": cmd_show,
         "list-due": cmd_list_due, "list-all": cmd_list_all, "mark-sent": cmd_mark_sent,
         "update": cmd_update, "mark-task": cmd_mark_task, "close-all": cmd_close_all,

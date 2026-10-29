@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from state import (ROOT, KIND_LABELS, _read_json, _write_json, contact_keys, contact_kind,  # noqa: E402
+from state import (ROOT, KIND_LABELS, NAME_SLOT, _read_json, _write_json, contact_keys, contact_kind,  # noqa: E402
                    find_entry, load_meta, load_settings, load_state, today_str)
 
 SAMPLES_FILE = ROOT / "config" / "writing_samples.md"
@@ -67,6 +67,12 @@ def resolve_draft(meta, key, field):
 
 def _norm(text):
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _same(draft, text):
+    """The text is the draft as written, with a name in place of any {name}."""
+    pattern = re.escape(_norm(draft)).replace(re.escape(NAME_SLOT), r"[^\s,.!?:]{1,40}(?: [^\s,.!?:]{1,40})?")
+    return re.fullmatch(pattern, _norm(text)) is not None
 
 
 def describe(field, key, lang, meta=None):
@@ -126,7 +132,7 @@ def record_sent(slug, key, field, lang, text, when=None):
     draft = resolve_draft(meta, key, field)
     if draft is None:
         result = "own"
-    elif _norm(draft) == _norm(text):
+    elif _same(draft, text):
         result = "unchanged"
     else:
         result = "edited"

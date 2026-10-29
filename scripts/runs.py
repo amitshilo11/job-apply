@@ -2,6 +2,9 @@
 """
 runs.py — background runs: Flow 3 started from the dashboard, done by Claude Code headless.
 
+Two kinds: "apply" (Flow 3 for a new job, the "+ New application" form) and "cv" (improve the
+CV for an application, the report's "Improve CV" button: src/prompts/tailor_cv.md).
+
 The dashboard's "+ New application" form (or `runs.py start`) queues a run. One at a time, the
 dashboard server (scripts/serve.py) starts `claude -p` in this repo with a prompt that says
 "follow Flow 3 with these inputs, don't ask" (the rules are in src/prompts/background_run.md).
@@ -23,6 +26,7 @@ Usage:
       --hr "Dana Cohen | https://www.linkedin.com/in/dana-cohen/ | dana@acme.com" --notes "..."
   python3 scripts/runs.py start --company "Acme" --title "Android Developer" --go-ahead
   python3 scripts/runs.py start --page-file job.txt     # a job page you saved to a file
+  python3 scripts/runs.py cv --slug acme --add Kotlin --add "CI/CD" --notes "put the BLE work first"
   python3 scripts/runs.py list
   python3 scripts/runs.py show <id>
   python3 scripts/runs.py reply <id> "Continue anyway"
@@ -61,13 +65,14 @@ KEEP_FINISHED = 50
 SHOW_FINISHED_DAYS = 3
 TICK_SECONDS = 1.5
 KILL_GRACE_SECONDS = 10
-FLOW_STEPS = 10
+FLOW_STEPS = {"apply": 10, "cv": 4}
 
 PEOPLE_KINDS = {"hr": "HR / recruiter", "lead": "Team lead", "referral": "Someone the user knows there",
                 "other": "Other contact"}
 LIMITS = {"url": 2000, "page_text": 100_000, "company": 200, "job_title": 200, "notes": 4000,
           "name": 200, "profile": 500, "email": 200, "note": 500}
 MAX_PEOPLE = 6
+MAX_KEYWORDS = 40
 
 TOOLS = "Read,Glob,Grep,Write,Edit,Bash,WebFetch,WebSearch"
 ALLOWED_TOOLS = [
@@ -92,8 +97,12 @@ RESULT_SCHEMA = {
 # Set by a parent Claude Code session or the Claude app, never by a plain Terminal
 SESSION_MARKERS = ("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_DESKTOP_APP_VERSION",
                    "CLAUDE_AGENT_SDK_VERSION", "CLAUDE_PID")
-RETRY_PROMPT = ("The run stopped before it finished. Check what's already in output/ for this job "
-                "and continue Flow 3 from where you stopped.")
+RETRY_PROMPT = {
+    "apply": ("The run stopped before it finished. Check what's already in output/ for this job "
+              "and continue Flow 3 from where you stopped."),
+    "cv": ("The run stopped before it finished. Check output/<slug>/tailored_cv.tex and continue "
+           "improving the CV from where you stopped."),
+}
 
 STEP_RE = re.compile(r"^[#*_\s]*step\s+(\d{1,2})(?:\s*(?:of|/)\s*\d+)?\s*[:.\-–—]\s*(.+?)[*_\s]*$", re.IGNORECASE)
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -207,7 +216,8 @@ def command(run, settings, resume):
     if resume:
         cmd += ["--resume", run["session_id"]]
     else:
-        cmd += ["--session-id", run["session_id"], "--name", f"Apply: {run['label']}"]
+        name = run["label"] if kind(run) == "cv" else f"Apply: {run['label']}"
+        cmd += ["--session-id", run["session_id"], "--name", name]
     if settings.get("background_model"):
         cmd += ["--model", str(settings["background_model"])]
     return cmd
@@ -216,6 +226,14 @@ def command(run, settings, resume):
 # ---------------------------------------------------------------------------
 # New runs
 # ---------------------------------------------------------------------------
+
+def kind(run):
+    return run.get("kind") or "apply"
+
+
+def retry_prompt(run):
+    return RETRY_PROMPT[kind(run)].replace("<slug>", run.get("slug") or "<slug>")
+
 
 def _text(p, key):
     value = str(p.get(key) or "").strip()
@@ -303,8 +321,16 @@ def find_duplicate(inp, runs):
     return None
 
 
+def _new_run(label, inp, **extra):
+    return dict({"id": datetime.now().strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2),
+                 "status": "queued", "label": label, "input": inp, "created_at": now(),
+                 "session_id": None, "session_started": False, "turns": 0}, **extra)
+
+
 def create(p, force=False):
     """Queue a run. Returns {"run": id}, or {"duplicate": {...}} when the job is already there."""
+    if p.get("kind") == "cv":
+        return create_cv(p)
     inp = clean_input(p)
     with _lock():
         runs = load_runs()
@@ -312,15 +338,40 @@ def create(p, force=False):
             dup = find_duplicate(inp, runs)
             if dup:
                 return {"duplicate": dup}
-        run = {"id": datetime.now().strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(2),
-               "status": "queued", "label": label_for(inp), "input": inp, "created_at": now(),
-               "session_id": None, "session_started": False, "turns": 0}
+        run = _new_run(label_for(inp), inp)
+        runs.append(run)
+        save_runs(runs)
+    return {"run": run["id"]}
+
+
+def create_cv(p):
+    """Queue a run that improves the CV for an application (the report's Improve CV button)."""
+    slug = str(p.get("slug") or "").strip()
+    meta = st.load_meta(slug) if SLUG_RE.match(slug) else None
+    if not meta:
+        raise ValueError(f"No application '{slug}'")
+    keywords = []
+    for k in p.get("keywords") or []:
+        k = " ".join(str(k).split())
+        if k and len(k) <= 60 and k not in keywords:
+            keywords.append(k)
+    if len(keywords) > MAX_KEYWORDS:
+        raise ValueError(f"Pick at most {MAX_KEYWORDS} keywords")
+    inp = {"slug": slug, "keywords": keywords, "notes": _text(p, "notes")}
+    company = meta.get("company") or slug
+    with _lock():
+        runs = load_runs()
+        if any(kind(r) == "cv" and r.get("slug") == slug and r["status"] in ACTIVE for r in runs):
+            raise ValueError(f"The CV for {company} is already being improved")
+        run = _new_run(f"Improve CV — {company}", inp, kind="cv", slug=slug)
         runs.append(run)
         save_runs(runs)
     return {"run": run["id"]}
 
 
 def build_prompt(run):
+    if kind(run) == "cv":
+        return build_cv_prompt(run)
     inp = run["input"]
     lines = ["This is a background run started from the job-search dashboard. Nobody is watching this",
              "chat, and nobody can answer until the run ends.",
@@ -350,6 +401,26 @@ def build_prompt(run):
     return "\n".join(lines) + "\n"
 
 
+def build_cv_prompt(run):
+    inp = run["input"]
+    meta = st.load_meta(inp["slug"]) or {}
+    job = " — ".join(x for x in (meta.get("company"), meta.get("job_title")) if x) or inp["slug"]
+    lines = ["This is a background run started from the job-search dashboard. Nobody is watching this",
+             "chat, and nobody can answer until the run ends.",
+             "",
+             "Read CLAUDE.md, src/prompts/background_run.md (the \"Improve CV runs\" section) and",
+             f"src/prompts/tailor_cv.md, then improve the CV for output/{inp['slug']}/ ({job}).",
+             ""]
+    if inp.get("keywords"):
+        lines += ["Keywords from the job the user says are true for them, to add to the CV:",
+                  ", ".join(inp["keywords"])]
+    else:
+        lines.append("No keywords picked: tailor the CV to the job description.")
+    if inp.get("notes"):
+        lines += ["", "What the user wants changed:", inp["notes"]]
+    return "\n".join(lines) + "\n"
+
+
 # ---------------------------------------------------------------------------
 # Running
 # ---------------------------------------------------------------------------
@@ -363,7 +434,7 @@ def _start(run, settings):
     # Resume the conversation once Claude has answered in it; before that, start a new one
     resume = bool(run.get("session_started"))
     if resume:
-        prompt = run.get("next_prompt") or RETRY_PROMPT
+        prompt = run.get("next_prompt") or retry_prompt(run)
     else:
         run["session_id"] = str(uuid.uuid4())
         prompt = build_prompt(run)
@@ -490,7 +561,7 @@ def _apply_event(run, ev):
             name, args = block.get("name") or "", block.get("input") or {}
             run["activity"] = describe(name, args)
             slug = slug_in(name, args)
-            if slug:
+            if slug and kind(run) == "apply":  # a CV run's slug is set when it's created
                 run["slug"] = slug
 
 
@@ -574,7 +645,8 @@ def _finalize(run):
                 error=_short(out.get("summary") or "The run failed.", 600) if out["status"] == "failed" else None)
     elif reason == "timeout":
         _finish(run, "failed", error=run.get("stop_message"))
-    elif result and not result.get("is_error") and run.get("slug") and st.find_entry(st.load_state(), run["slug"]):
+    elif (result and not result.get("is_error") and kind(run) == "apply" and run.get("slug")
+          and st.find_entry(st.load_state(), run["slug"])):
         # No structured result, but the application was saved
         _finish(run, "done", result={"status": "done", "summary": result.get("result") or ""})
     elif result:
@@ -681,7 +753,7 @@ def retry(run_id):
         if run["status"] in ACTIVE:
             raise ValueError("This run is still going")
         run.update(status="queued", dismissed=False, error=None,
-                   next_prompt=RETRY_PROMPT if run.get("session_started") else None)
+                   next_prompt=retry_prompt(run) if run.get("session_started") else None)
         save_runs(runs)
     return {}
 
@@ -728,11 +800,11 @@ def public_run(run, queued=()):
     result = run.get("result") or {}
     queued = list(queued)
     return {
-        "id": run["id"], "status": run["status"], "label": run["label"],
+        "id": run["id"], "kind": kind(run), "status": run["status"], "label": run["label"],
         "company": result.get("company") or meta.get("company"),
         "job_title": result.get("job_title") or meta.get("job_title"),
         "fit_score": card.get("fit_score"), "verdict": card.get("verdict"),
-        "step": run.get("step"), "steps": FLOW_STEPS, "activity": run.get("activity"),
+        "step": run.get("step"), "steps": FLOW_STEPS[kind(run)], "activity": run.get("activity"),
         "seconds": int(_age(run["started_at"], run.get("finished_at"))) if run.get("started_at") else None,
         "slug": slug, "report": f"{slug}/report.html" if slug and (st.OUTPUT_DIR / slug).is_dir() else None,
         "summary": result.get("summary"), "question": result.get("question"),
@@ -782,7 +854,8 @@ def _person(kind, value):
 
 def _line(run):
     view = public_run(run)
-    name = " — ".join(x for x in (view["company"], view["job_title"]) if x) or view["label"]
+    name = view["label"] if view["kind"] == "cv" else (
+        " — ".join(x for x in (view["company"], view["job_title"]) if x) or view["label"])
     text = f"{run['id']}  {run['status']:<11}  {name}"
     if run["status"] == "running":
         step = run.get("step")
@@ -813,6 +886,15 @@ def cmd_start(args):
     tick()  # starts it now when nothing else is running
     print(f"Queued run {res['run']}. It runs in the background; follow it on the dashboard "
           f"(python3 scripts/serve.py) or here: python3 scripts/runs.py work")
+
+
+def cmd_cv(args):
+    try:
+        res = create_cv({"slug": args.slug, "keywords": args.add or [], "notes": args.notes})
+    except ValueError as err:
+        sys.exit(f"ERROR: {err}")
+    tick()
+    print(f"Queued run {res['run']}. Follow it on the dashboard or here: python3 scripts/runs.py work")
 
 
 def cmd_list(args):
@@ -879,7 +961,7 @@ def cmd_check(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Background runs: Flow 3 started from the dashboard")
+    parser = argparse.ArgumentParser(description="Background runs started from the dashboard: Flow 3 and Improve CV")
     sub = parser.add_subparsers(dest="command")
 
     p_start = sub.add_parser("start", help="Queue a run for a job")
@@ -894,6 +976,11 @@ def main():
     p_start.add_argument("--go-ahead", action="store_true", help="Carry on even if the fit is low")
     p_start.add_argument("--tailor-cv", action="store_true", help="Tailor the CV for this role")
     p_start.add_argument("--force", action="store_true", help="Start even if this job is already there")
+
+    p_cv = sub.add_parser("cv", help="Queue a run that improves the CV for an application")
+    p_cv.add_argument("--slug", required=True)
+    p_cv.add_argument("--add", action="append", help="A keyword from the job that's true for you (repeatable)")
+    p_cv.add_argument("--notes", help="What else to change")
 
     p_list = sub.add_parser("list", help="Recent runs")
     p_list.add_argument("--limit", type=int, default=15)
@@ -912,7 +999,7 @@ def main():
     sub.add_parser("check", help="Is the claude CLI installed and logged in?")
 
     args = parser.parse_args()
-    commands = {"start": cmd_start, "list": cmd_list, "show": cmd_show, "reply": cmd_reply,
+    commands = {"start": cmd_start, "cv": cmd_cv, "list": cmd_list, "show": cmd_show, "reply": cmd_reply,
                 "cancel": cmd_cancel, "work": cmd_work, "check": cmd_check}
     handler = commands.get(args.command)
     if not handler:

@@ -27,6 +27,7 @@ import http.server
 import json
 import os
 import posixpath
+import re
 import secrets
 import socket
 import sys
@@ -79,6 +80,23 @@ def act_close_thread(p):
     return {}
 
 
+def act_person(p):
+    """The user found the person for a slot drafted with {name}."""
+    entries = st.load_state()
+    entry = _entry(entries, p.get("slug"))
+    meta = st.load_meta(entry["slug"])
+    profile = str(p.get("profile") or "").strip()
+    if profile and not re.match(r"https?://\S+$", profile, re.IGNORECASE):
+        raise ValueError("The LinkedIn link should start with https://")
+    if any(len(str(p.get(k) or "")) > 500 for k in ("name", "name_he", "profile")):
+        raise ValueError("That's too long")
+    st.set_person(meta, p.get("key"), p.get("name"), p.get("name_he"), profile)
+    st.save_meta(entry["slug"], meta)
+    st.sync_threads(entry, meta)
+    st.save_state(entries)
+    return {"learned": "Saved. The messages now use their name."}
+
+
 def act_task(p):
     entries = st.load_state()
     entry = _entry(entries, p.get("slug"))
@@ -118,7 +136,8 @@ def act_stage(p):
     return {}
 
 
-ACTIONS = {"event": act_event, "close-thread": act_close_thread, "task": act_task, "stage": act_stage}
+ACTIONS = {"event": act_event, "close-thread": act_close_thread, "person": act_person, "task": act_task,
+           "stage": act_stage}
 
 
 def refresh_index():
