@@ -12,3 +12,7 @@ give the phone link it printed and the warning: anyone on the same Wi-Fi with th
 see the applications, so stop the server when done.
 
 If it says the port is busy, the dashboard is probably already running: just give the URL.
+
+Mention once that **+ New application** on the dashboard starts a role in the background. If
+the server printed that Claude Code isn't installed or logged in, pass that on: the user runs
+`claude auth login` once in Terminal (don't run it for them).

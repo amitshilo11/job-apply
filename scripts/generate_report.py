@@ -457,6 +457,42 @@ INDEX_CSS = """
 .modal label{display:block;font-size:.88rem;margin:.3rem 0}
 .modal textarea{width:100%;border:1px solid #e5e5ea;border-radius:8px;padding:.5rem;font-family:inherit;font-size:.85rem;min-height:56px;margin-top:.5rem}
 .modal-actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.8rem}
+.btn-big{padding:.5rem 1rem;font-size:.88rem}
+.run{padding:.75rem 0;border-bottom:1px solid #f0f0f0}
+.run:last-child{border-bottom:none}
+.run-head{display:flex;justify-content:space-between;gap:.75rem;flex-wrap:wrap;align-items:flex-start}
+.run-title{font-weight:700;display:flex;align-items:center;gap:.45rem;flex-wrap:wrap}
+.run-title a{color:inherit;text-decoration:none}.run-title a:hover{text-decoration:underline}
+.run-sub{font-size:.84rem;color:#6e6e73;margin-top:.1rem}
+.run-error{font-size:.85rem;color:#b91c1c;margin-top:.35rem}
+.run-question{background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:.6rem .8rem;margin-top:.5rem;font-size:.9rem;white-space:pre-wrap}
+.run-reply{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.5rem;align-items:flex-start}
+.run-reply textarea{flex:1 1 220px;min-height:38px;border:1px solid #e5e5ea;border-radius:8px;padding:.4rem .55rem;font-family:inherit;font-size:.85rem}
+.run-buttons{display:flex;gap:.35rem;flex-wrap:wrap;align-items:center}
+.run details{margin-top:.4rem;font-size:.84rem}
+.run details summary{cursor:pointer;color:#0071e3}
+.run pre{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;background:#f5f5f7;border-radius:8px;padding:.6rem .75rem;margin-top:.4rem}
+.run-hint{font-size:.78rem;color:#8e8e93;margin-top:.35rem;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap}
+.spinner{width:.85rem;height:.85rem;border:2px solid #dbeafe;border-top-color:#0071e3;border-radius:50%;display:inline-block;animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.runs-problem{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:.6rem .8rem;font-size:.85rem;margin-bottom:.5rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+.runs-problem[hidden],.form-warning[hidden]{display:none}
+.modal-wide{max-width:560px;max-height:92vh;overflow:auto}
+.modal .field{display:block;font-size:.8rem;font-weight:600;color:#3a3a3c;margin:.7rem 0 0}
+.modal input[type=text],.modal input[type=url],.modal input[type=email]{width:100%;border:1px solid #e5e5ea;border-radius:8px;padding:.45rem .55rem;font-family:inherit;font-size:.88rem;font-weight:400;margin-top:.25rem}
+.modal .field textarea{font-weight:400;margin-top:.25rem}
+.form-note{font-size:.84rem;color:#6e6e73}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.form-section{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.07em;color:#6e6e73;margin:1.1rem 0 0}
+.person{margin-top:.55rem}
+.person-kind{font-size:.8rem;font-weight:600;color:#3a3a3c}
+.person-fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:.4rem}
+.person-fields .wide{grid-column:1/-1}
+.modal .check{display:flex;gap:.45rem;align-items:center;font-size:.86rem;margin:.5rem 0 0}
+.modal details.paste{margin-top:.5rem;font-size:.84rem}
+.modal details.paste summary{cursor:pointer;color:#0071e3}
+.form-warning{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:.5rem .7rem;font-size:.84rem;margin-top:.7rem;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
+@media (max-width:560px){.form-row,.person-fields{grid-template-columns:1fr}}
 """
 
 JS = """
@@ -474,6 +510,13 @@ function flash(btn, label) {
 function copyText(text, btn) {
   navigator.clipboard.writeText(text).then(function() { flash(btn, 'Copied'); },
     function() { window.prompt('Copy this:', text); });
+}
+function showToast(text, ms) {
+  var t = document.createElement('div');
+  t.textContent = text;
+  t.style.cssText = 'position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#1d1d1f;color:#fff;padding:.6rem 1rem;border-radius:10px;font-size:.85rem;z-index:99;max-width:90vw;text-align:center';
+  document.body.appendChild(t);
+  setTimeout(function() { t.remove(); }, ms || 3500);
 }
 function showOffline() {
   var b = document.getElementById('offline');
@@ -533,11 +576,7 @@ document.addEventListener('DOMContentLoaded', function() {
   var toast = sessionStorage.getItem('ja-toast');
   if (toast) {
     sessionStorage.removeItem('ja-toast');
-    var t = document.createElement('div');
-    t.textContent = toast;
-    t.style.cssText = 'position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);background:#1d1d1f;color:#fff;padding:.6rem 1rem;border-radius:10px;font-size:.85rem;z-index:99';
-    document.body.appendChild(t);
-    setTimeout(function() { t.remove(); }, 3500);
+    showToast(toast);
   }
 });
 """
@@ -570,10 +609,297 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 """
 
+# Background runs (scripts/runs.py): the New application form and the live "Background runs"
+# card. Raw string so the JS can use backslashes as written.
+RUNS_JS = r"""
+var RUNS = {status: {}, timer: null, claude: null, root: ''};
+function h(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
+    return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c];
+  });
+}
+function shellQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+function runName(run) { return run.company ? run.company + (run.job_title ? ' — ' + run.job_title : '') : run.label; }
+function minutes(seconds) { var m = Math.floor(seconds / 60); return m < 1 ? 'under a minute' : m + ' min'; }
+function runBtn(label, act, run, cls, extra) {
+  return '<button class="btn ' + (cls || '') + '" data-run-act="' + act + '" data-id="' + h(run.id) + '"' +
+    (extra || '') + '>' + h(label) + '</button>';
+}
+function fitBadge(run) {
+  if (!run.fit_score) return '';
+  var cls = run.fit_score >= 4 ? 'badge-green' : run.fit_score == 3 ? 'badge-blue' : 'badge-amber';
+  return '<span class="badge ' + cls + '">Fit ' + h(run.fit_score) + '/5</span>';
+}
+function claudeProblem(c) {
+  if (!c) return '';
+  if (!c.found) return "Claude Code isn't installed on this Mac, so runs can't start. Install it, then run <code>claude auth login</code> once.";
+  if (c.logged_in === false) return "Claude Code isn't logged in on this Mac, so runs can't start. Run this once in Terminal: " +
+    '<code>claude auth login</code><button class="btn btn-light" data-act="copy-text" data-text="claude auth login">Copy</button>';
+  return '';
+}
+function runHtml(run) {
+  var name = h(runName(run)), s = run.status, title, sub = '', body = '', buttons = '';
+  var hide = runBtn('×', 'dismiss', run, 'btn-quiet', ' title="Hide"');
+  var open = run.report ? '<a class="btn btn-light" href="' + h(run.report) + '">Open</a>' : '';
+  if (s === 'queued') {
+    title = '⏳ ' + name;
+    sub = run.position > 1 ? 'Waiting: ' + (run.position - 1) + ' ahead of it' : 'Starting…';
+    buttons = runBtn('Cancel', 'cancel', run, 'btn-quiet');
+  } else if (s === 'running') {
+    title = '<span class="spinner"></span>' + name + ' ' + fitBadge(run);
+    var parts = [];
+    if (run.step) parts.push('Step ' + h(run.step.n) + ' of ' + h(run.steps) + ': ' + h(run.step.text));
+    if (run.activity) parts.push(h(run.activity));
+    parts.push('<span class="run-time" data-since="' + (Date.now() - (run.seconds || 0) * 1000) + '">' +
+      minutes(run.seconds || 0) + '</span>');
+    sub = parts.join(' · ');
+    buttons = run.stopping ? '<span class="hint">Stopping…</span>' : runBtn('Cancel', 'cancel', run, 'btn-quiet');
+  } else if (s === 'needs_input') {
+    title = '❓ ' + name + ' ' + fitBadge(run);
+    sub = 'Claude needs your answer to go on';
+    var options = (run.options || []).map(function(o) {
+      return runBtn(o, 'reply', run, 'btn-light', ' data-text="' + h(o) + '"');
+    }).join('');
+    body = '<div class="run-question">' + h(run.question || run.summary || '') + '</div><div class="run-reply">' + options +
+      '<textarea data-reply-for="' + h(run.id) + '" placeholder="Or write your answer"></textarea>' +
+      runBtn('Send', 'reply-text', run) + '</div>';
+    buttons = open + hide;
+  } else if (s === 'done') {
+    title = '✓ ' + (run.report ? '<a href="' + h(run.report) + '">' + name + '</a>' : name) + ' ' + fitBadge(run);
+    sub = 'Ready' + (run.seconds ? ' · took ' + minutes(run.seconds) : '');
+    if (run.summary) body = '<details><summary>Summary</summary><pre>' + h(run.summary) + '</pre></details>';
+    buttons = (run.report ? '<a class="btn" href="' + h(run.report) + '">Open</a>' : '') + hide;
+  } else if (s === 'skipped') {
+    title = '– ' + name;
+    sub = 'Skipped';
+    if (run.summary) body = '<div class="run-sub">' + h(run.summary) + '</div>';
+    buttons = open + hide;
+  } else {
+    title = (s === 'cancelled' ? 'Cancelled: ' : '✗ ') + name;
+    sub = s === 'interrupted' ? 'Stopped before it finished' : s === 'failed' ? 'Failed' : '';
+    if (run.error) body = '<div class="run-error">' + h(run.error) + '</div>';
+    buttons = open + runBtn('Retry', 'retry', run, 'btn-light') + hide;
+  }
+  if (run.session_id && (s === 'needs_input' || s === 'failed' || s === 'interrupted')) {
+    var cmd = 'cd ' + shellQuote(RUNS.root) + ' && claude --resume ' + run.session_id;
+    body += '<div class="run-hint">Or take it over in Terminal: <code>claude --resume</code>' +
+      '<button class="btn btn-light" data-act="copy-text" data-text="' + h(cmd) + '">Copy command</button></div>';
+  }
+  return '<div class="run-head"><div><div class="run-title">' + title + '</div>' +
+    (sub ? '<div class="run-sub">' + sub + '</div>' : '') + '</div><div class="run-buttons">' + buttons + '</div></div>' + body;
+}
+function renderRuns(data) {
+  var box = document.getElementById('runs'), runs = data.runs || [];
+  if (!box) return;
+  if (!runs.length) { box.innerHTML = ''; return; }
+  var card = box.querySelector('.runs-card');
+  if (!card) {
+    box.innerHTML = '<div class="card runs-card"><div class="section-title">Background runs</div>' +
+      '<div class="runs-problem" hidden></div><div class="runs-list"></div></div>';
+    card = box.querySelector('.runs-card');
+  }
+  var problem = claudeProblem(data.claude), warn = card.querySelector('.runs-problem');
+  warn.hidden = !problem;
+  if (problem && warn.innerHTML !== problem) warn.innerHTML = problem;
+  // Only rows whose data changed are redrawn, so an answer being typed isn't wiped
+  var list = card.querySelector('.runs-list'), keep = {};
+  runs.forEach(function(run, i) {
+    var copy = Object.assign({}, run);
+    delete copy.seconds;
+    var sig = JSON.stringify(copy), el = document.getElementById('run-' + run.id);
+    if (!el) { el = document.createElement('div'); el.id = 'run-' + run.id; }
+    if (el.dataset.sig !== sig) { el.className = 'run run-' + run.status; el.innerHTML = runHtml(run); el.dataset.sig = sig; }
+    if (list.children[i] !== el) list.insertBefore(el, list.children[i] || null);
+    keep[el.id] = true;
+  });
+  Array.prototype.slice.call(list.children).forEach(function(el) { if (!keep[el.id]) list.removeChild(el); });
+}
+function formBusy() {
+  if (document.getElementById('run-modal').style.display === 'flex') return true;
+  return Array.prototype.some.call(document.querySelectorAll('textarea[data-reply-for]'), function(t) {
+    return t.value.trim() || t === document.activeElement;
+  });
+}
+function refreshRuns() {
+  if (!SERVED) return;
+  clearTimeout(RUNS.timer);
+  fetch('/api/runs').then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.ok) throw new Error('bad response');
+    RUNS.claude = data.claude;
+    RUNS.root = data.root || '';
+    var active = false, ready = null;
+    (data.runs || []).forEach(function(run) {
+      var before = RUNS.status[run.id], now = run.status;
+      if ((before === 'running' || before === 'queued') && now !== 'running' && now !== 'queued') {
+        var name = runName(run);
+        if (now === 'done') ready = '✓ ' + name + ' is ready.';
+        else if (now === 'skipped') ready = name + ' was skipped.';
+        else if (now === 'needs_input') showToast(name + ': Claude needs your answer.', 5000);
+        else if (now === 'failed' || now === 'interrupted') showToast(name + ': the run stopped.', 5000);
+      }
+      RUNS.status[run.id] = now;
+      if (now === 'running' || now === 'queued') active = true;
+    });
+    renderRuns(data);
+    updateFormWarning();
+    if (ready) {
+      // Reload so the new application shows up, unless that would lose what's being typed
+      if (!formBusy()) { sessionStorage.setItem('ja-toast', ready); location.reload(); return; }
+      showToast(ready + ' Reload the page to see it.', 6000);
+    }
+    RUNS.timer = setTimeout(refreshRuns, active ? 3000 : 30000);
+  }).catch(function() { RUNS.timer = setTimeout(refreshRuns, 10000); });
+}
+function runPost(action, payload) {
+  return fetch('/api/' + action, {method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-Job-Agent': '1'}, body: JSON.stringify(payload)})
+    .then(function(r) { return r.json(); })
+    .catch(function(err) { return {ok: false, error: err.message}; });
+}
+function updateFormWarning() {
+  var el = document.getElementById('run-claude'), problem = claudeProblem(RUNS.claude);
+  if (!el) return;
+  el.hidden = !problem;
+  if (problem && el.innerHTML !== problem) el.innerHTML = problem;
+}
+function openRunForm() {
+  document.getElementById('run-modal').style.display = 'flex';
+  document.getElementById('run-warning').hidden = true;
+  updateFormWarning();
+  setTimeout(function() { document.querySelector('#run-form [name=url]').focus(); }, 50);
+}
+function closeRunForm() { document.getElementById('run-modal').style.display = 'none'; }
+function runFormData() {
+  var f = document.getElementById('run-form');
+  var val = function(name) { return f.elements[name].value.trim(); };
+  var people = Array.prototype.map.call(f.querySelectorAll('.person'), function(row) {
+    var p = {kind: row.dataset.kind};
+    row.querySelectorAll('input[data-field]').forEach(function(i) { p[i.dataset.field] = i.value.trim(); });
+    return p;
+  });
+  return {url: val('url'), page_text: val('page_text'), company: val('company'), job_title: val('job_title'),
+          notes: val('notes'), people: people, go_ahead: f.elements.go_ahead.checked,
+          tailor_cv: f.elements.tailor_cv.checked};
+}
+function submitRun(force) {
+  var data = runFormData(), warn = document.getElementById('run-warning'), btn = document.getElementById('run-submit');
+  warn.hidden = true;
+  if (!data.url && !data.page_text && !(data.company && data.job_title)) {
+    warn.textContent = 'Give the job: a link, the pasted job page, or the company and the job title.';
+    warn.hidden = false;
+    return;
+  }
+  data.force = !!force;
+  btn.disabled = true;
+  runPost('run-start', data).then(function(res) {
+    btn.disabled = false;
+    if (!res.ok) { warn.textContent = res.error || 'Could not start it.'; warn.hidden = false; return; }
+    if (res.duplicate) {
+      var d = res.duplicate, where = d.run ? 'a run for it is ' + d.status : "it's already in your applications";
+      if (confirm(d.label + ': ' + where + '. Start another run anyway?')) submitRun(true);
+      return;
+    }
+    document.getElementById('run-form').reset();
+    closeRunForm();
+    showToast("Started. Claude is on it; it shows up here when it's done.", 4500);
+    refreshRuns();
+  });
+}
+document.addEventListener('click', function(e) {
+  var b = e.target.closest('[data-run-act]');
+  if (!b) return;
+  e.preventDefault();
+  if (!SERVED) return showOffline();
+  var d = b.dataset, act = d.runAct, payload = {id: d.id};
+  if (act === 'new') return openRunForm();
+  if (act === 'cancel' && !confirm('Stop this run? What it saved so far stays.')) return;
+  if (act === 'reply') payload.text = d.text;
+  if (act === 'reply-text') {
+    var ta = document.querySelector('textarea[data-reply-for="' + d.id + '"]');
+    payload.text = ta ? ta.value.trim() : '';
+    if (!payload.text) { if (ta) ta.focus(); return; }
+  }
+  var action = {cancel: 'run-cancel', retry: 'run-retry', dismiss: 'run-dismiss',
+                reply: 'run-reply', 'reply-text': 'run-reply'}[act];
+  if (!action) return;
+  b.disabled = true;
+  runPost(action, payload).then(function(res) {
+    if (!res.ok) { b.disabled = false; alert('Could not do that: ' + res.error); return; }
+    if (action === 'run-reply') showToast('Sent. Claude picks up where it stopped.');
+    refreshRuns();
+  });
+});
+document.addEventListener('DOMContentLoaded', function() {
+  var modal = document.getElementById('run-modal');
+  if (!modal) return;
+  document.getElementById('run-form').addEventListener('submit', function(e) { e.preventDefault(); submitRun(false); });
+  document.getElementById('run-form-cancel').addEventListener('click', closeRunForm);
+  modal.addEventListener('click', function(e) { if (e.target === modal) closeRunForm(); });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape' && modal.style.display === 'flex') closeRunForm(); });
+  setInterval(function() {
+    document.querySelectorAll('.run-time[data-since]').forEach(function(el) {
+      el.textContent = minutes((Date.now() - +el.dataset.since) / 1000);
+    });
+  }, 15000);
+  refreshRuns();
+});
+"""
+
+PERSON_ROWS = [("hr", "HR / recruiter"), ("lead", "Team lead"), ("referral", "Someone you know there")]
+
+
+def run_form_html(settings):
+    """The New application form: starts a background run (scripts/runs.py)."""
+    people = ""
+    for kind, label in PERSON_ROWS:
+        note = ('<input type="text" class="wide" data-field="note" placeholder="How you know them">'
+                if kind == "referral" else "")
+        people += (f'<div class="person" data-kind="{kind}"><div class="person-kind">{esc(label)}</div>'
+                   f'<div class="person-fields"><input type="text" data-field="name" placeholder="Name">'
+                   f'<input type="url" data-field="profile" placeholder="LinkedIn URL">'
+                   f'<input type="email" data-field="email" placeholder="Email">{note}</div></div>')
+    tailor = " checked" if settings.get("tailor_cv") else ""
+    return f"""<div id="run-modal" class="modal-overlay">
+  <form class="modal modal-wide" id="run-form" autocomplete="off" novalidate>
+    <h3>New application</h3>
+    <p class="form-note">Claude does the whole apply flow in the background: the role card, the right people, and
+      messages in Hebrew and English. It shows up here when it's done.</p>
+    <div id="run-claude" class="form-warning" hidden></div>
+    <label class="field">Job link<input type="url" name="url" placeholder="https://www.linkedin.com/jobs/view/…"></label>
+    <details class="paste"><summary>No link, or want the hiring team found? Paste the job page</summary>
+      <textarea name="page_text" rows="6" placeholder="On the job page: Cmd+A, Cmd+C, then paste here"></textarea>
+    </details>
+    <div class="form-row">
+      <label class="field">Company<input type="text" name="company" placeholder="Optional with a link"></label>
+      <label class="field">Job title<input type="text" name="job_title" placeholder="Optional with a link"></label>
+    </div>
+    <div class="form-section">People you know about (optional)</div>
+    {people}
+    <label class="field">Notes for Claude<textarea name="notes" rows="2"
+      placeholder="Anything else: how you found it, who referred you, what to stress"></textarea></label>
+    <label class="check"><input type="checkbox" name="go_ahead"> Go ahead even if the fit looks low</label>
+    <label class="check"><input type="checkbox" name="tailor_cv"{tailor}> Tailor my CV for this role</label>
+    <div id="run-warning" class="form-warning" hidden></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-quiet" id="run-form-cancel">Cancel</button>
+      <button type="submit" class="btn" id="run-submit">Start</button>
+    </div>
+  </form>
+</div>"""
+
 OFFLINE_BANNER = ('<div id="offline" class="offline-banner">Read-only: this page was opened from disk, '
                   'so clicks can\'t be saved. Start the dashboard and open it from there: '
                   '<code>python3 scripts/serve.py</code>'
                   '<button class="btn btn-light" data-act="copy-text" data-text="python3 scripts/serve.py">Copy</button></div>')
+
+
+def write_page(path, html):
+    """Write atomically: a background run's generate_report.py and the dashboard server can
+    write the same page at the same moment, and a reader should never get half of it."""
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(html)
+    os.replace(tmp, path)
 
 
 def page(title, css, body, extra_js=""):
@@ -1176,8 +1502,7 @@ def generate_report(slug):
     html = page(f"{entry.get('company') or slug} — job application", REPORT_CSS, "\n".join(b for b in body if b))
 
     out_path = os.path.join(out_dir, "report.html")
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(html)
+    write_page(out_path, html)
     return out_path
 
 
@@ -1381,10 +1706,14 @@ def generate_index(slugs=None):
     skipped_html = (f'<table class="table"><tr><th>Company</th><th>Reason</th><th>Date</th></tr>{skipped_rows}</table>'
                     if skipped_rows else '<p class="empty">Nothing skipped.</p>')
 
-    grid = f'<div class="grid">{cards}</div>' if cards else '<p class="empty">No active applications. Give Claude a role: <code>/apply-role &lt;job url&gt;</code></p>'
+    grid = (f'<div class="grid">{cards}</div>' if cards else
+            '<p class="empty">No active applications. Click <strong>+ New application</strong>, or give Claude '
+            'a role in chat: <code>/apply-role &lt;job url&gt;</code></p>')
     body = f"""<div class="top">
   <div><h1>Job search</h1><div class="subtitle">{len(active)} active · {len(closed)} closed · {len(skipped)} not processed</div></div>
+  <button class="btn btn-big needs-server" data-run-act="new">+ New application</button>
 </div>
+<div id="runs"></div>
 {today_card(today_data, settings)}
 {stats_card(stats)}
 <div class="tab-bar">
@@ -1407,11 +1736,11 @@ def generate_index(slugs=None):
       <button class="btn" id="close-confirm">Close it</button>
     </div>
   </div>
-</div>"""
+</div>
+{run_form_html(settings)}"""
     out_path = os.path.join(out_root, "index.html")
     os.makedirs(out_root, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(page("Job search", INDEX_CSS, body, INDEX_JS))
+    write_page(out_path, page("Job search", INDEX_CSS, body, INDEX_JS + RUNS_JS))
     return out_path
 
 

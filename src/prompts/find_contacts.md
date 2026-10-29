@@ -10,7 +10,25 @@ user. Search engines (WebSearch) and public pages (WebFetch) only. The user send
 
 ---
 
-## 1. People the user already knows (always first)
+## 0. People the user named (before anything else)
+
+The user may name people in the request ("the recruiter is Dana Cohen", a LinkedIn link, an
+email) or in the dashboard form (HR / recruiter, team lead, someone they know there). They're
+true: don't second-guess them.
+
+- Each one fills their slot: HR / recruiter → `hr`, team lead → `lead`, someone they know →
+  `referral` (`"connected": true`, the referral ask, no connect note), anyone else → `other`.
+  `"source": "you"`, `"confidence": "high"`, and `why` says the user named them.
+- Keep their LinkedIn URL and email exactly as given. Fill in what's missing (job title,
+  location, `name_he`) from search, but don't swap the person for someone else.
+- Only a name: find the profile with search (step 4) and check it's them (step 5). Not found:
+  keep the name with `"profile": null` and say what you tried in `why`. Never build a URL.
+- An email for a person goes in their contact as `email`. For the HR / recruiter it's also the
+  email channel's address (Flow 3 Step 6).
+- A slot they filled is done: don't search for someone else for it. Still run steps 1 to 5
+  for the other slots.
+
+## 1. People the user already knows (always, right after §0)
 
 ```bash
 python3 scripts/referrals.py "<Company>" --json

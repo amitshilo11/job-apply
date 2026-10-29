@@ -85,6 +85,7 @@ CLAIM_EN = re.compile(
 CLAIM_HE = re.compile(r"(?:שלחתי|הגשתי|שלחנו)[^.!?\n]{0,30}(?:מייל|מועמדות|קו\"ח|קו״ח|קורות חיים)|הגשתי מועמדות")
 PLACEHOLDER_RE = re.compile(r"\[[^\]\n]{1,40}\]|<[^>\n]{1,40}>|\{[^}\n]{1,40}\}|\bTODO\b|\bXXX\b|\bnot found\b",
                             re.IGNORECASE)
+SLOT_RE = re.compile(r"\[[^\]\n]{1,40}\]")
 LOWER_I = re.compile(r"(?<![\w'’])i(?=[\s,.!?'’]|$)")
 
 
@@ -136,6 +137,17 @@ def _words(text):
 def shingles(text, n=5):
     w = _words(text)
     return {" ".join(w[i:i + n]) for i in range(len(w) - n + 1)}
+
+
+def as_template(words, title_words):
+    """Words with each run of the job title's words folded into "_", the way a [Role] slot reads."""
+    out = []
+    for w in words:
+        if w not in title_words:
+            out.append(w)
+        elif not out or out[-1] != "_":
+            out.append("_")
+    return " ".join(out)
 
 
 def repeated_spans(text, counts, skip, n=5):
@@ -286,10 +298,15 @@ def check_message(m, ctx, settings, samples_raw, counts):
             add("error", f"mentions {expected} by name mid-message; is it written to them? "
                          f"\"{snippet(text, hit.start(), hit.end())}\"")
 
-    # The same phrase across many companies reads like a template
+    # The same phrase across many companies reads like a template. Your samples don't count:
+    # they're compared as plain words, with each [slot] and this job's title read as "_".
     if counts:
+        title_words = {w for t in ctx["titles"] for w in _words(t)}
+        known = f" {as_template(_words(SLOT_RE.sub(' _ ', samples_raw)), title_words)} "
+
         def skip(s):
-            return s in samples or any(s in t.lower() for t in ctx["titles"])
+            return (f" {as_template(s.split(), title_words)} " in known
+                    or any(s in t.lower() for t in ctx["titles"]))
         for phrase, n in repeated_spans(text, counts, skip)[:2]:
             add("warning", f"\"{phrase}\" is also in {n} other companies' messages (reads like a template)")
     return issues

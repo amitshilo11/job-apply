@@ -10,6 +10,10 @@ when you open them, so "overdue" counts and anything Claude changed are always c
 When you edit a message in its box before clicking Sent, the version you sent is added to
 config/writing_samples.md (see scripts/samples.py), so future drafts sound more like you.
 
+"+ New application" on the dashboard starts a background run: Claude Code does Flow 3 headless
+while you do something else, and the dashboard shows its progress and the result (see
+scripts/runs.py). The server runs the queue, one run at a time.
+
 Usage:
   python3 scripts/serve.py              # opens http://localhost:8765 in your browser
   python3 scripts/serve.py --no-open
@@ -32,11 +36,13 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import generate_report as gr  # noqa: E402
+import runs  # noqa: E402
 import state as st  # noqa: E402
 from samples import record_sent  # noqa: E402
 
 LOCK = threading.Lock()
 CONFIG = {"token": None, "hosts": set()}
+MAX_BODY = 512 * 1024  # a pasted job page fits easily
 
 
 def _entry(entries, slug):
@@ -174,13 +180,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._redirect("/output/index.html")
         if path == "/api/ping":
             return self._json(200, {"ok": True})
+        if path == "/api/runs":
+            return self._json(200, {"ok": True, "runs": runs.public(), "claude": runs.claude_status(),
+                                    "root": str(st.ROOT)})
         allowed = path.startswith("/output/") or (path.startswith("/cv/") and path.endswith(".pdf"))
         if not allowed:
             return self.send_error(404)
 
         # Rebuild on view so dates are current and Claude's changes show up
         try:
-            with LOCK:
+            with LOCK, st.state_lock():
                 if path == "/output/index.html":
                     refresh_index()
                 elif path.endswith("/report.html"):
@@ -202,14 +211,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._json(403, {"ok": False, "error": "forbidden"})
         try:
             length = int(self.headers.get("Content-Length") or 0)
+            if length > MAX_BODY:
+                return self._json(413, {"ok": False, "error": "too much text"})
             payload = json.loads(self.rfile.read(length) or b"{}")
         except (ValueError, json.JSONDecodeError):
             return self._json(400, {"ok": False, "error": "bad request body"})
-        handler = ACTIONS.get(url.path[len("/api/"):])
+        if not isinstance(payload, dict):
+            return self._json(400, {"ok": False, "error": "bad request body"})
+        name = url.path[len("/api/"):]
+        if name in runs.API:
+            # Background runs keep their own lock (state/runs.json); no page to rebuild
+            try:
+                result = runs.API[name](payload) or {}
+            except ValueError as err:
+                return self._json(400, {"ok": False, "error": str(err)})
+            self.log_message("%s %s", name, payload.get("id") or result.get("run") or "")
+            return self._json(200, dict({"ok": True}, **result))
+        handler = ACTIONS.get(name)
         if not handler:
             return self._json(404, {"ok": False, "error": "unknown action"})
         try:
-            with LOCK:
+            with LOCK, st.state_lock():
                 result = handler(payload) or {}
                 slug = payload.get("slug")
                 if slug and os.path.isdir(st.OUTPUT_DIR / slug):
@@ -248,7 +270,7 @@ def main():
         CONFIG["token"] = secrets.token_urlsafe(16)
         CONFIG["hosts"].add(f"{lan_ip()}:{port}")
 
-    with LOCK:
+    with LOCK, st.state_lock():
         refresh_index()
         for slug in gr.list_slugs():
             try:
@@ -273,6 +295,13 @@ def main():
         print("  Anyone on this Wi-Fi with that link can see your applications. Stop with Ctrl+C when done.",
               flush=True)
     print("Clicks save to state/applications.json. Ctrl+C to stop.", flush=True)
+    claude = runs.claude_status()
+    if not claude["found"]:
+        print("New application needs Claude Code: install it, then run `claude auth login` once.", flush=True)
+    elif claude["logged_in"] is False:
+        print("New application needs Claude Code logged in: run `claude auth login` once in Terminal.", flush=True)
+    # The background-run queue: picks up runs still going from before a restart, starts queued ones
+    threading.Thread(target=runs.loop, daemon=True, name="runs").start()
     if not args.no_open:
         threading.Timer(0.5, lambda: webbrowser.open(url)).start()
     try:

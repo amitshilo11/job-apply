@@ -11,6 +11,7 @@ flow. Read the relevant flow file before acting; don't guess at the steps from m
 | User says (examples) | Read and follow |
 |---|---|
 | `process role <url>`, `apply for <title> at <Company>`, a pasted job page or a job screenshot | `src/flow3.md` — **the main flow** |
+| `run <url> in the background`, `queue this role for the dashboard` | `python3 scripts/runs.py start --url <url>` (`--hr`/`--lead`/`--knows "Name \| URL \| email"`, `--notes`): Flow 3 headless, shown on the dashboard |
 | `what's today`, `show follow-ups`, `check due`, `draft follow-ups` | `src/flow1.md` (Follow-up sub-flow, near the end) |
 | `find jobs`, `check job alerts`, `watch <Company>` | `src/flow4.md` |
 | `got an interview at <Company>` | `src/prompts/interview_prep.md` |
@@ -51,6 +52,8 @@ All in `config/settings.json`:
   rewriting only when true or asked for in that request; don't flip it for a one-off.
 - `job_filters`, `job_ranking` — what Flow 4 keeps and how it ranks.
 - `dry_run` — Gmail drafts instead of sending.
+- `run_timeout_minutes` (40), `notify_when_done` (true), `background_model` (null = the CLI's
+  default) — background runs started from the dashboard.
 
 ## State model
 
@@ -63,6 +66,8 @@ All in `config/settings.json`:
 - `state/skipped.json` — companies ruled out, with a reason. `state/queue.json` — Flow 1 queue.
 - `state/sent_log.json` — every message marked sent (draft vs. what was sent).
 - `state/seen_jobs.json` — jobs already shown by Flow 4.
+- `state/runs.json` — background runs (`scripts/runs.py`); each has `state/runs/<id>/` with the
+  prompts sent and Claude's event stream.
 
 All managed through scripts — never hand-edit JSON when a command exists:
 
@@ -87,6 +92,11 @@ optionally `research.md` (notes, sources), `interview_prep.md`, `tailored_cv.tex
 `output/index.html` is the dashboard (Today, stats, all applications). Open both through
 `python3 scripts/serve.py` (http://localhost:8765) so clicks save; `--lan` adds phone access.
 Regenerate after bulk changes: `python3 scripts/generate_report.py --all`.
+
+**+ New application** on the dashboard starts a background run: `scripts/runs.py` runs
+`claude -p` (the CLI's own login) on Flow 3 with the rules in `src/prompts/background_run.md`,
+one run at a time, writing only under `output/` and changing state only through the scripts.
+The dashboard shows each run's progress, its question when it needs the user, and the result.
 
 ## Conventions
 

@@ -11,6 +11,10 @@ The user finds a role and hands it over. They get back:
 Triggers: `process role <url>`, `apply for <title> at <Company>`, `/apply-role <url>`, or the
 user pastes a job page or drops a screenshot of one.
 
+Started from the dashboard's **+ New application** (a background run, `scripts/runs.py`)? Also
+follow `src/prompts/background_run.md`: nobody is watching, and it says what to do wherever
+this flow would ask.
+
 Load `config/settings.json`, `config/profile.md` and `config/writing_samples.md` at the start.
 
 ---
@@ -37,7 +41,7 @@ whether it's hybrid, with no searching.
 Slug: from `scripts/state.py`'s `slugify()`:
 
 ```bash
-python3 -c "import sys; sys.path.insert(0, 'scripts'); from state import slugify; print(slugify('<Company>'))"
+python3 scripts/state.py slug "<Company>"
 ```
 
 If `python3 scripts/state.py show --slug <slug>` finds an existing application (another role
@@ -82,15 +86,16 @@ said to go ahead). If not, log the skip with the verdict line as the reason and 
 
 ## Step 5 — People
 
-Follow `src/prompts/find_contacts.md`: people the user already knows first
-(`scripts/referrals.py`), then the hiring team from the job post, then the right roles for the
-company's size, then verified search. Write `contacts`, `referrals` and `alternates` into
-meta.json. Never guess a profile URL.
+Follow `src/prompts/find_contacts.md`: people the user named in the request first (§0), then
+people they already know (`scripts/referrals.py`), then the hiring team from the job post,
+then the right roles for the company's size, then verified search. Write `contacts`,
+`referrals` and `alternates` into meta.json. Never guess a profile URL.
 
 ## Step 6 — Email address (second channel)
 
-An email in the job post itself ("send your CV to jobs@...") is best. Otherwise check the
-Careers and Contact pages for `careers@`, `jobs@`, `hr@`, `cv@` on their domain. Never guess.
+An email the user gave (for the recruiter, or in the request) or one in the job post itself
+("send your CV to jobs@...") is best. Otherwise check the Careers and Contact pages for
+`careers@`, `jobs@`, `hr@`, `cv@` on their domain. Never guess.
 None found: no email, LinkedIn is the channel. Put it in meta.json `email`.
 
 ## Step 7 — Messages

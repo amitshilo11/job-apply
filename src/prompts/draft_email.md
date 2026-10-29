@@ -41,9 +41,11 @@ if there is one. No stretching to fit.>
 
 Reply in the same thread, subject `Re: <original subject>`.
 
-- #1: under 40 words. One new, useful thing (a relevant project line, a GitHub link) or a
-  simple question ("is the role still open?").
-- #2 (last): under 30 words, closes the loop politely.
+- With the user's follow-up defaults (`config/writing_samples.md`, "Defaults you picked"): use
+  them as written.
+- No defaults yet: #1 under 40 words, with one new, useful thing (a relevant project line, a
+  GitHub link) or a simple question ("is the role still open?"). #2 (last) under 30 words,
+  closing the loop politely.
 
 ## Attachment
 

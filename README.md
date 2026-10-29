@@ -131,10 +131,41 @@ python3 scripts/serve.py --lan    # also on your phone (same Wi-Fi, link with a 
 - **Each role's page**: the role card, every person with their steps (connect note → first
   message → follow-ups) and buttons (Sent, They accepted, They replied, Close), the email, the
   CV with missing keywords, interview prep, and a history.
+- **+ New application**: start a role without opening Claude (below).
 
 Every click saves to `state/applications.json`. Pages opened straight from disk are read-only.
 The server only listens on your machine (unless `--lan`), only serves the dashboard pages and
 CV PDFs, and ignores requests from other websites.
+
+### Start an application from the dashboard
+
+Click **+ New application**, give it the job (a link, the pasted job page, or company and title)
+and, if you know them, the HR / recruiter, the team lead or someone you know there (name,
+LinkedIn URL, email), plus notes for Claude. Claude Code then does Flow 3 in the background
+while you do something else:
+
+- The **Background runs** card shows each run live: which step it's on and what it's doing.
+  One run at a time; the next ones wait in line. Cancel stops a run (what it saved stays).
+- When Flow 3 would stop and ask (a fit of 1–2 out of 5, a job page it can't read), the run
+  waits with the question and buttons (Continue anyway / Skip it) or a box for your answer.
+  Answering picks up the same Claude session where it stopped.
+- When it's done you get a macOS notification, the new application shows up with its role card,
+  people and messages, and its connect requests appear in Today.
+- Failed? **Retry**, or take it over in Terminal with the `claude --resume ...` command it shows.
+
+It uses the `claude` command's own login: run `claude auth login` once in Terminal (the
+dashboard tells you if it isn't logged in). Runs use your Claude usage like a chat would.
+A background run can read the repo, write only under `output/`, change your tracking only
+through the scripts, and search and read the web. It has no Gmail (the email waits in the
+report for you) and none of your other tools or permissions.
+
+From a terminal, or by asking Claude "run this in the background":
+
+```bash
+python3 scripts/runs.py start --url <job url> --hr "Dana Cohen | https://linkedin.com/in/... | dana@acme.com"
+python3 scripts/runs.py list                 # recent runs
+python3 scripts/runs.py work                 # run the queue here and watch it
+```
 
 You can also just tell Claude: "sent the connect note to Noa in Hebrew", "Dan accepted",
 "Acme rejected me" (or `/sent ...`), and it records it.
@@ -246,7 +277,8 @@ fall back to your CV bullets, marked "fill in".
 | Script | What it does |
 |---|---|
 | `state.py` | Applications, per-person threads, `today`, `stats`, `event`, `update`, `show`, queue |
-| `serve.py` | The dashboard server (buttons that save) |
+| `serve.py` | The dashboard server (buttons that save, New application) |
+| `runs.py` | Background runs: Flow 3 started from the dashboard, done by `claude -p` |
 | `generate_report.py` | Builds `output/<slug>/report.html` and `output/index.html` |
 | `check_messages.py` | The message checker |
 | `samples.py` | Records what you sent and learns from your edits |
@@ -265,6 +297,6 @@ src/               flows (flow0–flow4) and prompt modules (role card, people, 
 scripts/           the Python tools above
 cv/                CV versions (gitignored) + resume.cls
 config/            profile, writing samples, settings, stories, watchlist, connections (gitignored)
-state/             applications, skipped, queue, sent log, seen jobs (gitignored, auto-managed)
+state/             applications, skipped, queue, sent log, seen jobs, background runs (gitignored, auto-managed)
 output/            one folder per application + the dashboard (gitignored)
 ```
