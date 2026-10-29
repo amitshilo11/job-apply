@@ -1,13 +1,12 @@
 ---
-description: Discover companies matching your profile and add them to the queue (Flow 0)
+description: (Parked) company discovery — use /job-alerts to find real open jobs instead
 argument-hint: [count] [vertical or city]
 ---
 
-Read `src/flow0.md` and follow it exactly.
+Company discovery (Flow 0) is parked: it found companies rather than open roles and never
+searched for mobile work. Tell the user that in one line, and offer `/job-alerts` (Flow 4:
+new jobs from their job-alert emails and watchlist, ranked against the profile).
 
-User request: `find-startups $ARGUMENTS`
-
-Parse `$ARGUMENTS` for an optional count (default 15) and an optional vertical
-(cybersecurity / health-tech / AI) or city — if a city is given, use the
-"City-based variant" section near the end of `src/flow0.md` instead of the
-default vertical steps.
+Only if the user still wants company discovery after that: read `src/flow0.md` and follow it
+for `find-startups $ARGUMENTS` (optional count, default 15, and an optional vertical or city;
+a city uses the "City-based variant" section).

@@ -1,410 +1,270 @@
 # Job Application Agent
 
-Automated outreach system powered by Claude Code. Discovers companies, tailors your CV per role, drafts cold emails and LinkedIn messages, and tracks every application from first contact to follow-up.
+A job-search assistant powered by Claude Code. You find a role you like; it tells you in a
+minute whether it's worth it (company, role, pros and cons, fit score), finds the right people
+to contact (people you already know first), drafts LinkedIn messages and an email in Hebrew
+and English that sound like you, and tracks every person through follow-ups with a daily
+to-do list.
 
 ---
 
-## Prerequisites
+## A normal day
 
-- [Claude Code](https://claude.ai/code) (CLI)
-- Python 3.9+
-- `tectonic` or `pdflatex` for building PDFs
-- Gmail MCP server (for sending/drafting emails)
-
----
-
-## Getting started
-
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/amitshilo11/job-apply.git
-cd job-apply
+```
+/today                         what to send today, what's due, what to check
+python3 scripts/serve.py       the dashboard: copy a message, send it on LinkedIn, click Sent
+/apply-role <job url>          a new role (or paste the job page / drop a screenshot)
+/followups                     draft the follow-ups that are due
 ```
 
-### 2. Create your config files
+Optional: a 9:00 reminder on work days that runs `/today` and drafts due follow-ups (a Claude
+scheduled task; it runs while the Claude app is open).
 
-The `config/` folder is gitignored — you need to create these three files yourself.
+---
 
-**`config/settings.json`**
+## Setup
+
+### Prerequisites
+
+- [Claude Code](https://claude.ai/code), Python 3.9+
+- `tectonic` (`brew install tectonic`) or `pdflatex` to build the CV PDFs
+- Gmail MCP (`claude mcp add gmail`) for email drafts, job-alert emails and reply checks.
+  Everything else works without it.
+
+### Files you fill in (`config/` and `cv/` are gitignored)
+
+| File | What it is |
+|---|---|
+| `config/profile.md` | Target roles, seniority, must-haves, deal-breakers, stack, location, a short "about me" |
+| `config/writing_samples.md` | 3 to 5 messages you really sent. This is where your voice comes from. It grows by itself: see [Learning your style](#learning-your-style) |
+| `config/settings.json` | Settings (below) |
+| `cv/main.tex` | Your CV (LaTeX). Build it: `bash scripts/build_cv.sh --base` |
+| `config/stories.md` | Optional: short work stories for interview prep (a template is included) |
+| `config/Connections.csv` | Optional but valuable: your LinkedIn connections, for referrals (see [People](#the-right-people)) |
+| `config/watchlist.json` | Optional: companies whose job boards to watch (managed by `scripts/watch_jobs.py`) |
+
+`state/` and `output/` are created automatically (`mkdir -p state output` on a fresh clone).
+
+### `config/settings.json`
 
 ```json
 {
   "sender_name": "Your Name",
   "sender_email": "you@gmail.com",
-  "email_signature": "Your Name",
-  "followup_days": 5,
   "dry_run": true,
-  "target_function": "software engineer",
-  "linkedin_search_terms": ["engineering manager", "team lead", "tech lead"]
+  "target_function": "mobile developer",
+  "linkedin_search_terms": ["team lead", "tech lead", "mobile lead", "android lead"],
+  "message_languages": ["en", "he"],
+  "tailor_cv": false,
+
+  "home_location": "<your city>, Israel",
+  "connect_note_max_chars": 200,
+  "linkedin_note_monthly_limit": 5,
+  "work_days": ["sun", "mon", "tue", "wed", "thu"],
+  "followup_schedule_workdays": [4, 5],
+  "ghost_after_workdays": 5,
+  "no_accept_after_workdays": 10,
+  "dashboard_port": 8765,
+
+  "cv_default_variant": "mobile",
+  "cv_variants": {
+    "mobile":    {"tex": "cv/main.tex",      "pdf": "cv/main.pdf",      "approved": true,  "use_for": ["android", "mobile", "kotlin"]},
+    "fullstack": {"tex": "cv/fullstack.tex", "pdf": "cv/fullstack.pdf", "approved": false, "use_for": ["full stack", "backend", "web"]}
+  },
+
+  "job_filters": {"title_include": ["android", "mobile", "kotlin"], "title_exclude": ["staff", "principal", "manager"],
+                  "locations": ["israel", "haifa", "yokneam", "tel aviv"], "remote_regions": ["israel", "emea", "anywhere"]},
+  "job_ranking": {"title_points": {"android": 4, "kotlin": 3}, "location_points": {"haifa": 3, "remote": 3}, "max_years": 5}
 }
 ```
 
-Keep `dry_run: true` for your first few runs — emails are saved as Gmail drafts instead of sent.
-
-**`config/profile.md`**
-
-Describe who you are and what you're looking for. Example structure:
-
-```markdown
-# Candidate Profile
-
-## Target roles
-- Software Engineer
-- Backend Engineer
-
-## Seniority
-Level: mid-level (3+ years)
-
-## Must-have criteria
-- Remote or hybrid
-- Startup environment
-
-## Nice-to-have
-- Interesting technical problem
-
-## Deal-breakers
-- Pure enterprise / large corp
-- No equity
-
-## Tech stack
-Strong: Python, TypeScript, ...
-Familiar: Go, Rust, ...
-
-## Location
-Based in [city]. Open to remote.
-
-## About me (2–3 sentences for Claude to use when drafting emails)
-...
-```
-
-**`config/writing_samples.md`**
-
-Paste 3–5 real messages or emails you've actually sent. This is what makes drafted emails sound like you, not a bot.
-
-```markdown
-# Writing Samples
-
-## Sample 1 — LinkedIn connect note
-Hey [name], I came across [company] and liked what you're building. Would love to connect.
-
-## Sample 2 — Cold email
-Hey,
-
-I'm [name], [role] with X years experience. Came across you and liked the product direction.
-Not sure if you're hiring but wanted to reach out. CV attached if useful.
-
-## Sample 3 — Follow-up
-Hey, just circling back on my email from last week. Still interested if timing works out.
-```
-
-### 3. Add your CV
-
-```bash
-cp /path/to/your-cv.tex cv/main.tex
-```
-
-### 4. Initialize state files
-
-The `state/` folder is gitignored. Create it with empty state:
-
-```bash
-mkdir -p state
-echo '[]' > state/queue.json
-echo '[]' > state/applications.json
-echo '[]' > state/skipped.json
-```
-
-### 5. Create the output folder
-
-```bash
-mkdir -p output
-```
-
-### 6. Install tectonic (LaTeX → PDF)
-
-```bash
-brew install tectonic
-```
-
-`pdflatex` (from MacTeX / BasicTeX) also works.
-
-### 7. Set up Gmail MCP
-
-The agent uses Gmail MCP to send or draft emails. Add it to your Claude Code MCP config:
-
-```bash
-claude mcp add gmail
-```
-
-Then authenticate when prompted on first use.
+- `dry_run: true` saves Gmail drafts instead of sending.
+- `message_languages`: every message is written once per language. Hebrew is written first and
+  natively, never translated. The first language is used for the Gmail draft.
+- `connect_note_max_chars`: LinkedIn free accounts allow about 200 characters per connect note
+  and only a few notes a month. Premium allows 300.
+- Follow-up timing is in work days (Sun–Thu): follow-up #1 four work days after your message,
+  #2 five work days later, then the thread closes as "no answer" five work days after that.
+  A connect request not accepted after 10 work days shows up under "Check".
 
 ---
+
+## Applying to a role (Flow 3, the main flow)
+
+```
+/apply-role https://www.linkedin.com/jobs/view/<job id>/
+apply for Android Developer at Acme
+```
+
+Best input: **paste the whole LinkedIn job page** (Cmd+A, Cmd+C) or drop a screenshot. That
+gives the agent the "Meet the hiring team" box, the company size and the work mode.
+
+What you get:
+
+1. **Role card**: the company in short (what they make, size, stage, warning signs like
+   layoffs, with sources), the role (what you'd build, work mode, commute from home, years asked
+   vs. yours, stack you have / don't have), pros and cons, a fit score out of 5 and a verdict.
+   At 1 or 2 out of 5 it stops and asks before writing anything.
+2. **People**: anyone you already know there (from `Connections.csv`), the job poster, then a
+   recruiter and team lead that fit the company's size. Each is checked (still there, in
+   Israel, linked to this role) and comes with a reason, a confidence level, and alternates.
+3. **Messages**, Hebrew and English: connect note, first message after they accept, and the email.
+   Every one passes the [message checker](#the-message-checker).
+4. **CV**: the approved CV version that fits the role, and the job keywords your CV is missing
+   (you decide whether to add them; nothing is rewritten for you).
+5. **Tracking**: each person becomes a thread on the dashboard with its next step and date.
+
+---
+
+## The dashboard
+
+```bash
+python3 scripts/serve.py          # http://localhost:8765, opens your browser
+python3 scripts/serve.py --lan    # also on your phone (same Wi-Fi, link with a token)
+```
+
+- **Today**: what to send now (connect requests, first messages, emails, applying on the site),
+  follow-ups due, and things to check, each with Copy and Sent buttons. Plus what's coming up
+  in the next 5 work days, and how many LinkedIn notes you've used this month.
+- **What's working**: accept and reply rates by recruiter vs. lead, Hebrew vs. English, note vs.
+  no note.
+- **Each role's page**: the role card, every person with their steps (connect note → first
+  message → follow-ups) and buttons (Sent, They accepted, They replied, Close), the email, the
+  CV with missing keywords, interview prep, and a history.
+
+Every click saves to `state/applications.json`. Pages opened straight from disk are read-only.
+The server only listens on your machine (unless `--lan`), only serves the dashboard pages and
+CV PDFs, and ignores requests from other websites.
+
+You can also just tell Claude: "sent the connect note to Noa in Hebrew", "Dan accepted",
+"Acme rejected me" (or `/sent ...`), and it records it.
+
+---
+
+## Learning your style
+
+Edit a message in its box on the dashboard, then click Sent: the version you sent is added to
+`config/writing_samples.md` under "Learned from your edits", and the next drafts follow it.
+Edited it inside LinkedIn instead? Paste what you sent:
+
+```bash
+pbpaste | python3 scripts/samples.py add --slug acme --key lead --field first_message_he
+python3 scripts/samples.py list
+```
+
+---
+
+## The message checker
+
+```bash
+python3 scripts/check_messages.py acme
+python3 scripts/check_messages.py --all
+```
+
+Errors (the agent fixes these before showing you a draft): connect note over the limit,
+generic AI phrases ("exactly the kind of challenge", "אשמח מאוד להזדמנות"), claims you never
+made ("been reading up on your research"), saying an email was sent when it wasn't, the
+recipient's own email in a message to them, talking about them in third person, a wrong name,
+leftover placeholders, dashes as separators. Warnings: long messages, lowercase "i", and a
+phrase that's in 3+ other companies' messages (reads like a template). Anything in your own
+writing samples is never flagged.
+
+---
+
+## The right people
+
+- **Referrals first.** Export your connections once a month: LinkedIn → Settings & Privacy →
+  Data privacy → Get a copy of your data → Connections. Save `Connections.csv` in `config/`.
+  `python3 scripts/referrals.py "Acme"` (or `--all` for every open application).
+- The report has one-click LinkedIn searches (recruiters, mobile/Android leads, everyone there
+  in Israel) to check or replace a contact.
+- Nothing on LinkedIn is automated. You send everything.
+
+---
+
+## Follow-ups and reminders
+
+```
+/today            python3 scripts/state.py today
+/followups        drafts every follow-up that's due, Hebrew + English, checked
+/stats            python3 scripts/state.py stats --days 30
+```
+
+LinkedIn follow-ups are drafted for you to send. Email follow-ups go to Gmail as drafts
+(or are sent when `dry_run` is false). If Gmail is connected, replies are picked up.
+
+---
+
+## Finding jobs (Flow 4)
+
+```
+/job-alerts                                   new jobs from your alert emails + watchlist, ranked
+/job-alerts watch Acme <job-board url>      watch a company's job board
+python3 scripts/watch_jobs.py                 check the watchlist yourself
+```
+
+- Set up job alerts once (LinkedIn Jobs, AllJobs, Drushim: "Android" / "Mobile" in your area,
+  hybrid + remote). The agent reads them from Gmail, ranks them with `job_ranking`, and you pick.
+- Watchlist: companies on Greenhouse, Lever and Ashby are read from their public job feeds.
+  Comeet pages are read best-effort.
+- The old company discovery (`/find-startups`, Flow 0) is parked: it found companies, not open roles.
+
+---
+
+## CV versions
+
+- `cv/main.tex`: your main (mobile) CV. `cv/fullstack.tex`: a full-stack version with the same
+  facts, reordered. Review it, then set `cv_variants.fullstack.approved` to `true` and build it:
+  `bash scripts/build_cv.sh --variant fullstack`.
+- `python3 scripts/cv_keywords.py --slug <slug>` picks the version per role and lists missing
+  keywords. Per-role rewriting (`src/prompts/tailor_cv.md`) only runs when you ask for it.
+
+---
+
+## Interview prep
+
+```
+/interview-prep acme Tuesday with the mobile lead
+```
+
+Company brief, how they interview, 8 to 12 likely questions with the story or CV fact to answer
+each, questions to ask them, and a short prep list. It uses `config/stories.md`; empty stories
+fall back to your CV bullets, marked "fill in".
+
+---
+
+## Other flows
+
+- `/process <Company>` / `process next from queue` (Flow 1): find the best role at a company,
+  then the same steps as Flow 3.
+- `/add-queue <Company>` (Flow 2): add companies to the queue without research.
+
+---
+
+## Scripts
+
+| Script | What it does |
+|---|---|
+| `state.py` | Applications, per-person threads, `today`, `stats`, `event`, `update`, `show`, queue |
+| `serve.py` | The dashboard server (buttons that save) |
+| `generate_report.py` | Builds `output/<slug>/report.html` and `output/index.html` |
+| `check_messages.py` | The message checker |
+| `samples.py` | Records what you sent and learns from your edits |
+| `referrals.py` | People you know at a company (from `Connections.csv`) |
+| `cv_keywords.py` | Picks the CV version, lists missing job keywords |
+| `watch_jobs.py` | Watchlist: new jobs from company job boards |
+| `rank_jobs.py` | Ranks a list of jobs against your preferences |
+| `build_cv.sh` | Builds CV PDFs (`--base`, `--variant <name>`, or a tailored one) |
 
 ## Directory structure
 
 ```
-CLAUDE.md      project context + routing table Claude Code loads automatically
-.claude/commands/  slash-command shortcuts (/find-startups, /process, /add-queue, /apply-role, /followups)
-cv/            your LaTeX CV  (you add main.tex)
-config/        profile, writing samples, settings  (gitignored — you fill these)
-scripts/       build_cv.sh, state.py, generate_report.py
-src/           flow playbooks (flow0.md–flow3.md) + prompt modules
-state/         applications.json, queue.json, skipped.json  (gitignored — auto-managed)
-output/        one folder per company  (gitignored — auto-generated)
+CLAUDE.md          routing: which flow handles which request
+.claude/commands/  slash commands (/apply-role, /today, /followups, /sent, /dashboard, ...)
+src/               flows (flow0–flow4) and prompt modules (role card, people, drafting, interview prep)
+scripts/           the Python tools above
+cv/                CV versions (gitignored) + resume.cls
+config/            profile, writing samples, settings, stories, watchlist, connections (gitignored)
+state/             applications, skipped, queue, sent log, seen jobs (gitignored, auto-managed)
+output/            one folder per application + the dashboard (gitignored)
 ```
-
----
-
-## Flows
-
-There are four flows. You trigger them by typing natural language in Claude Code, or with the
-equivalent slash command in `.claude/commands/` (`/find-startups`, `/add-queue`, `/process`,
-`/apply-role`, `/followups`).
-
----
-
-### Flow 0 — Discover companies
-
-Searches the web, VC portfolio pages, and startup directories for companies that match your profile. Adds them to the queue automatically.
-
-**Trigger:**
-
-```
-find startups
-find 10 cybersecurity startups
-find 15 health-tech startups
-find companies in Netanya
-find companies near me
-```
-
-**What it does:**
-
-1. Runs 6–9 web searches across your target verticals (cybersecurity, health-tech, AI by default)
-2. Fetches VC portfolio pages (Aleph, Pitango, Team8, Glilot, TLV Partners, etc.)
-3. Deduplicates against everything already in `applications.json`, `skipped.json`, and `queue.json`
-4. Pushes new companies to `state/queue.json`
-5. Prints a summary table of what was added
-
-**After Flow 0 completes**, say `process next from queue` to start working through the list.
-
----
-
-### Flow 2 — Add companies manually to the queue
-
-Adds one or more companies you already know about directly to the queue, without any web research.
-
-**Trigger:**
-
-```
-add Wiz to queue
-queue company Snyk
-add to queue: Orca Security
-add to queue: Wiz, website: https://wiz.io, linkedin: https://linkedin.com/company/wiz
-add these to queue: Wiz, Snyk, Orca Security
-```
-
-**What it does:**
-
-1. Parses company name + optional website / LinkedIn URL from your input
-2. Checks for duplicates (queue, applications, skipped)
-3. Adds each new company to `state/queue.json`
-4. Prints a summary of what was added and the new queue total
-
-**When to use this instead of Flow 0:**
-- You saw a job posting on LinkedIn and want to track the company
-- A friend recommended a company
-- You want to add a specific list without doing discovery first
-
-You can also edit `state/queue.json` directly — it's a plain JSON array.
-
----
-
-### Flow 1 — Process a company (full outreach)
-
-The main flow. Takes a company name (or pulls the next one from the queue) and does everything: research, CV tailoring, email draft/send, LinkedIn message drafts, and state tracking.
-
-**Trigger — single company:**
-
-```
-process company Wiz
-process Snyk
-```
-
-**Trigger — from the queue:**
-
-```
-process next from queue
-process next 3 from queue
-process the queue
-```
-
-**Trigger — multiple at once:**
-
-```
-process these companies: Wiz, Snyk, Orca Security
-```
-
-**What it does, step by step:**
-
-| Step | What happens | Output |
-|------|-------------|--------|
-| 1. Discover | Finds the company website and careers page | `output/<slug>/research.md` |
-| 2. Scan jobs | Searches careers page + LinkedIn jobs, picks best-fit role | appended to `research.md` |
-| 3. Find email | Looks for `careers@`, `jobs@`, `hr@` on the site | appended to `research.md` |
-| 4. Tailor CV | Rewrites `cv/main.tex` for the role, builds PDF | `output/<slug>/tailored_cv.tex` + `.pdf` |
-| 5. Draft email | Writes a cold email in your voice using your writing samples | `output/<slug>/email.md` |
-| 6. Send / draft | Sends via Gmail MCP, or saves as draft if `dry_run: true` | Gmail |
-| 7. LinkedIn lookup | Finds HR and team lead profiles | appended to `research.md` |
-| 8. LinkedIn messages | Drafts connect notes and first messages for each profile | `output/<slug>/linkedin.md` |
-| 9. Log state | Records the application in `state/applications.json` | — |
-| 10. Report | Generates an HTML report and updates the master dashboard | `output/<slug>/report.html` + `output/index.html` |
-
-**LinkedIn messages are for you to send manually** — open the URLs, copy the drafted text, hit Connect.
-
----
-
-### Flow 3 — Apply to a specific role
-
-Use this when you already have a job posting in hand — a URL, or just a company + title — rather
-than discovering companies through Flow 0/2.
-
-**Trigger:**
-
-```
-process role https://jobs.lever.co/acme/abc123
-process role at Acme: Backend Engineer
-apply for Backend Engineer at Acme
-apply to https://jobs.lever.co/acme/abc123
-```
-
-**What it does:** same shape as Flow 1 (research, tailored CV, contact email, draft email,
-LinkedIn lookup and messages, state logging, report) but starting from the specific role instead
-of searching a careers page — see `src/flow3.md` for the exact steps.
-
----
-
-## CV tailoring
-
-The CV tailoring prompt lives at `src/prompts/tailor_cv.md`. It instructs Claude to:
-
-- Identify the top 3–5 skills/keywords from the job description
-- Move the most relevant bullets to the top of each position
-- **Remove** bullets that don't support the role
-- Shorten verbose bullets
-- Drop entire positions if they aren't relevant (keeping at least the 2 most recent)
-- **Target output: one page**
-
-Each change is annotated inline:
-```latex
-% TAILORED: moved up for backend focus
-% TAILORED: removed — irrelevant to security role
-% TAILORED: shortened to fit one page
-```
-
----
-
-## Follow-ups
-
-Check what's due:
-
-```bash
-python3 scripts/state.py list-due
-```
-
-Then say `draft follow-ups` (or `/followups`) in Claude Code. It will draft a short follow-up for each due company and save it to `output/<slug>/followup_email.md`. Same `dry_run` logic applies. `output/index.html` also shows a "Follow-ups due" strip at the top with a pill per company overdue or due today.
-
-`list-due` automatically skips companies whose pipeline `stage` is closed (`rejected`, `withdrawn`, `offer`) or that never had an email to follow up on (`email-skipped` with no address found) — see [Tracking outcomes](#tracking-outcomes) below.
-
----
-
-## Tracking outcomes
-
-The initial `status` (`sent` / `drafted` / `email-skipped`) only tracks whether the first email went out. To track what happens after — a reply, an interview, a rejection — update the `stage`:
-
-```bash
-python3 scripts/state.py update --slug wiz --stage replied
-python3 scripts/state.py update --slug wiz --stage interview --note "phone screen booked for Tuesday"
-python3 scripts/state.py update --slug wiz --stage rejected
-```
-
-Valid stages: `applied`, `replied`, `interview`, `offer`, `rejected`, `ghosted`, `withdrawn`. The last three are "closed" — once set, `list-due` stops surfacing that company and the report hides its follow-up-due date.
-
-To record that you manually completed a LinkedIn connect/message or an ATS application (these can't be detected automatically, so tell Claude and it will log it):
-
-```bash
-python3 scripts/state.py mark-task --slug wiz --task connected_hr
-python3 scripts/state.py mark-task --slug wiz --task messaged_lead
-python3 scripts/state.py mark-task --slug wiz --task applied
-```
-
-After any `update` or `mark-task`, regenerate that company's report so the dashboard reflects it: `python3 scripts/generate_report.py wiz`.
-
----
-
-## View all applications
-
-```bash
-python3 scripts/state.py list-all
-```
-
-Or open `output/index.html` in a browser for the full dashboard.
-
----
-
-## Queue management
-
-```bash
-# See what's in the queue
-python3 scripts/state.py queue list
-
-# See counts
-python3 scripts/state.py queue stats
-
-# Add a company manually
-python3 scripts/state.py queue add \
-  --company "Wiz" \
-  --slug "wiz" \
-  --website "https://wiz.io" \
-  --linkedin "https://linkedin.com/company/wiz" \
-  --source "manual"
-
-# Remove a company
-python3 scripts/state.py queue remove --slug "wiz"
-
-# Un-stick entries left in "processing" (e.g. an interrupted run)
-python3 scripts/state.py queue reset
-```
-
----
-
-## State files
-
-| File | What it tracks |
-|------|---------------|
-| `state/queue.json` | Companies discovered or added manually, waiting to be processed |
-| `state/applications.json` | Companies that have been fully processed — email status, pipeline `stage`, and manually-completed `tasks` (see [Tracking outcomes](#tracking-outcomes)) |
-| `state/skipped.json` | Companies that were ruled out (with reason) |
-
-All three are plain JSON — safe to edit by hand, though prefer the `state.py` commands so slugs and dedupe stay consistent.
-
-Each company's `output/<slug>/meta.json` (written by Flow 1/3) holds the same research/contacts/email data as the markdown files in structured form — `generate_report.py` reads it when present and only falls back to parsing the markdown for older output folders that predate it.
-
----
-
-## Dry-run vs live
-
-| Setting | Behavior |
-|---------|---------|
-| `dry_run: true` | Email saved as Gmail draft — nothing sent |
-| `dry_run: false` | Email sent immediately via Gmail |
-
-Start with `true`. Once you've reviewed a few drafts and they look right, switch to `false`.
-
----
-
-## What you still do manually
-
-- Send LinkedIn connect requests — open URLs from `output/<company>/linkedin.md`, copy the drafted notes
-- Review Gmail drafts before switching to live mode
-- Fill in `cv/main.tex`, `config/profile.md`, `config/writing_samples.md`

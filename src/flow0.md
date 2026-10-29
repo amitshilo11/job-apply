@@ -1,4 +1,9 @@
-# Flow 0 — Startup Discovery
+# Flow 0 — Startup Discovery (PARKED)
+
+> **Parked on 2026-10-29.** It found companies, not open roles, its searches looked for
+> backend/full-stack and never for mobile, and Flow 1 then picked a "best fit" even when
+> nothing fit. Use **Flow 4** (`src/flow4.md`: job alerts + watchlist, ranked) to find jobs.
+> Only run this file if the user explicitly asks for company discovery after hearing that.
 
 When the user says `find startups` (or `find N startups`, `find N <domain> startups`, e.g. `find 10 cybersecurity startups`, or `find N startups in <city>` / `find startups in <city>`), follow these steps.
 

@@ -17,7 +17,11 @@ output/
 .claude/settings.local.json
 .claude-flow/*
 
-# Configs and state
-cv/main.tex
+# Configs and state (personal: CV versions, profile, settings, application data)
+cv/*.tex
+cv/*.pdf
 state/*
 config/*
+
+# Personal config backups (profile, settings, writing samples)
+config.zip

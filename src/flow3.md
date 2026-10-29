@@ -1,214 +1,194 @@
-# Flow 3 — With Role
+# Flow 3 — Apply to a role you found (the main flow)
 
-When the user gives a specific job they want to apply for (URL or company + job title), follow these steps.
+The user finds a role and hands it over. They get back:
+1. a **role card**: the company in short, the role, pros and cons, a fit score and a verdict;
+2. the **right people**: someone they already know there, the job poster, the recruiter and
+   team lead, each with a reason and a confidence level;
+3. **messages in Hebrew and English** that sound like them, checked for AI tells and mistakes;
+4. the **email** (when there's an address) and the **CV** to attach;
+5. **tracking**: every person becomes a thread with follow-up dates in the dashboard.
 
-Trigger phrases:
-- `process role <url>`
-- `process role at <Company>: <Job Title>`
-- `apply for <Job Title> at <Company>`
-- `apply to <url>`
+Triggers: `process role <url>`, `apply for <title> at <Company>`, `/apply-role <url>`, or the
+user pastes a job page or drops a screenshot of one.
 
-Load `config/profile.md` and `config/writing_samples.md` at the start.
-
----
-
-## Input parsing
-
-**Job URL given** (e.g. `process role https://jobs.lever.co/acme/abc123`):
-- WebFetch the URL to get the job title, team, location, and full JD.
-- Extract the company name from the page or domain.
-
-**Company + title given** (e.g. `process role at Acme: Backend Engineer`):
-- WebSearch: `"<company name>" "<job title>" job posting`
-- WebFetch the best result to get the full JD. If not found, proceed with just the title.
-
-Generate slug: lowercase company name, spaces → `-`, strip non-alphanumeric except `-`.
+Load `config/settings.json`, `config/profile.md` and `config/writing_samples.md` at the start.
 
 ---
 
-## Step 1 — Research company and job
+## Prerequisites check
 
-WebSearch: `"<company name>" official website`
-WebFetch the homepage to confirm the right company.
-
-Write to `output/<slug>/research.md`:
-```
-# Research: <Company>
-Website: <url>
-Careers page: <url or "not found">
-Jobs found: [<job title>]
-Best fit: <job title>
-Apply here: <job URL if known>
-Job description snippet: <first 200 words of JD>
-
-Fit notes:
-+ <strength 1 vs profile>
-+ <strength 2 vs profile>
-- <gap or flag 1>
-```
+- `config/profile.md` filled in (not template text), `config/writing_samples.md` has at least
+  one real sample, `cv/main.tex` exists, `config/settings.json` has `sender_email`.
+- If anything is missing, stop and say which file to fill in. Don't make up profile details.
 
 ---
 
-## Step 2 — Extract contact email
+## Step 1 — Get the job
 
-WebFetch the company's Contact or About page.
-Look for any of: `careers@`, `jobs@`, `hr@`, `hello@`, `info@` + their domain.
+Best input: the **pasted job page** (Cmd+A, Cmd+C on the LinkedIn job) or a **screenshot**.
+It has the job description, the hiring team ("Meet the hiring team"), the company size and
+whether it's hybrid, with no searching.
 
-Do NOT guess or make up an email. If none found, write "not found" — still do the LinkedIn and message steps.
+- **URL**: WebFetch it. For LinkedIn use the public view `https://www.linkedin.com/jobs/view/<id>/`.
+  If the page is blocked or empty, say so once and ask for the pasted page or a screenshot;
+  if the user isn't around, carry on with WebSearch (`"<Company>" "<title>"`).
+- **Company + title**: WebSearch for the posting, WebFetch the best result.
 
-Append to `output/<slug>/research.md`:
-```
-Contact email: <email OR "not found">
-```
+Slug: from `scripts/state.py`'s `slugify()`:
 
----
-
-## Step 2.5 — Tailor CV
-
-Read `cv/main.tex` and `src/prompts/tailor_cv.md` (tailoring rules), then write the tailored
-`.tex` content to `output/<slug>/tailored_cv.tex`, using the job title and JD from Step 1 to decide
-what to emphasize. Mark each changed bullet with a `% TAILORED:` comment as the rules describe.
-
-Compile to PDF:
 ```bash
-bash scripts/build_cv.sh <slug>
+python3 -c "import sys; sys.path.insert(0, 'scripts'); from state import slugify; print(slugify('<Company>'))"
 ```
 
-If compilation fails, stop and show the error — do not proceed without a working PDF.
+If `python3 scripts/state.py show --slug <slug>` finds an existing application (another role
+at the same company), use `<slug>-<short-role>` instead (e.g. `forsight-robotics-sr-swe`).
 
----
-
-## Step 3 — Draft email
-
-Only if a contact email was found.
-
-Read `config/writing_samples.md` to calibrate tone.
-Read `src/prompts/draft_email.md` for tone rules.
-
-Write to `output/<slug>/email.md`:
-```
-To: <contact email>
-Subject: <subject line>
-Body:
-<email body>
-Attachment: output/<slug>/tailored_cv.pdf
-```
-
-Do NOT send the email. You are generating it for the user to send manually.
-
----
-
-## Step 4 — Find people on LinkedIn
-
-Search for HR / recruiter at the company:
-```
-WebSearch: site:linkedin.com/in "<company name>" (HR OR recruiter OR "talent acquisition" OR "people operations")
-```
-Take the first result that looks like a real LinkedIn profile URL. Do not hallucinate URLs.
-If nothing reliable found, write "not found".
-
-Search for a relevant team lead:
-```
-WebSearch: site:linkedin.com/in "<company name>" ("engineering manager" OR "tech lead" OR "team lead")
-```
-Filter by relevance to the target function from `config/profile.md`. Take the first strong match.
-
-Append to `output/<slug>/research.md`:
-```
-HR profile: <url OR "not found">
-Team lead profile: <url OR "not found">
-```
-
----
-
-## Step 5 — Draft LinkedIn messages
-
-Read `config/writing_samples.md` to calibrate tone.
-Read `src/prompts/draft_linkedin.md` for tone rules.
-
-Write to `output/<slug>/linkedin.md`:
-```
-# LinkedIn Outreach: <Company>
-
-## HR / Recruiter
-Profile: <url OR "not found">
-Connect note (≤300 chars):
-<note>
-
-First message (after accepting):
-<message>
-
----
-
-## Team Lead
-Profile: <url OR "not found">
-Connect note (≤300 chars):
-<note>
-
-First message (after accepting):
-<message>
-```
-
-These are for YOU to send manually. Open each URL, copy the text, hit Connect.
-
----
-
-## Step 5.5 — Write structured metadata
-
-Write `output/<slug>/meta.json` capturing everything gathered in Steps 1–5, so `generate_report.py` doesn't have to regex-parse the markdown:
+Save the **full job description, word for word**, to `output/<slug>/jd.md` (the keyword check
+and interview prep read it). Then start `output/<slug>/meta.json`:
 
 ```json
-{
-  "website": "<url or null>",
-  "careers_url": "<url or null>",
-  "best_fit": "<job title>",
-  "apply_url": "<url or null>",
-  "fit_notes": ["+ <strength 1>", "+ <strength 2>", "- <gap 1>"],
-  "email": "<contact email or null>",
-  "contacts": [
-    {"title": "HR / Recruiter", "profile": "<url or null>", "job_title": "<title or null>", "connect_note": "<text or null>", "first_message": "<text or null>"},
-    {"title": "Team Lead", "profile": "<url or null>", "job_title": "<title or null>", "connect_note": "<text or null>", "first_message": "<text or null>"}
-  ],
-  "email_draft": {"to": "<email or null>", "subject": "<subject or null>", "body": "<body or null>"}
-}
+{"schema": 2, "company": "...", "job_title": "...", "apply_url": "...", "job_source": "linkedin | comeet | greenhouse | site | ...",
+ "website": null, "careers_url": null, "contacts": []}
 ```
 
-Omit `email_draft` (or set to `null`) if Step 3 was skipped because no contact email was found.
+## Step 2 — The company, in short
 
----
+WebSearch and WebFetch: the website, what they make (one line), size (LinkedIn "N employees",
+the pasted page, or news), stage or funding, where the R&D for this role sits, and warning
+signs from the last 12 months (layoffs, freezes, shutdown). Keep the URLs you used.
 
-## Step 6 — Log state
+If the company shut down or clearly isn't hiring: log it with `python3 scripts/state.py skip ...`
+(reason + source), regenerate the index, and stop.
 
-Only include a flag if you actually have a value (omit rather than pass the literal word `null`):
+## Step 3 — CV and keywords
+
 ```bash
-python3 scripts/state.py add \
-  --company "<company name>" \
-  --slug "<slug>" \
-  --job-title "<title>" \
-  --email-sent-to "<email>" \
-  --status "drafted" \
-  --hr-url "<url>" \
-  --lead-url "<url>"
+python3 scripts/cv_keywords.py --slug <slug> --title "<job title>"
 ```
 
----
+Picks the approved CV version that fits (writes `cv`, `cv_file`, `cv_keywords` into meta.json)
+and lists the job's keywords the CV doesn't have. If it says a better-fitting version isn't
+approved yet, mention that in the summary. If it prints a build hint, run it.
 
-## Step 7 — Generate report
+CV tailoring (rewriting the CV for this role) only runs when `tailor_cv` is true or the user
+asked for it in this request; see `src/prompts/tailor_cv.md`. A one-off ask doesn't change the
+setting.
+
+## Step 4 — Role card (then maybe stop)
+
+Follow `src/prompts/role_card.md`: write `role_card` (and `fit_notes`) into meta.json and show
+the card in chat. **Fit 1 or 2: stop and ask** whether to continue (unless the user already
+said to go ahead). If not, log the skip with the verdict line as the reason and stop.
+
+## Step 5 — People
+
+Follow `src/prompts/find_contacts.md`: people the user already knows first
+(`scripts/referrals.py`), then the hiring team from the job post, then the right roles for the
+company's size, then verified search. Write `contacts`, `referrals` and `alternates` into
+meta.json. Never guess a profile URL.
+
+## Step 6 — Email address (second channel)
+
+An email in the job post itself ("send your CV to jobs@...") is best. Otherwise check the
+Careers and Contact pages for `careers@`, `jobs@`, `hr@`, `cv@` on their domain. Never guess.
+None found: no email, LinkedIn is the channel. Put it in meta.json `email`.
+
+## Step 7 — Messages
+
+Read `src/prompts/draft_linkedin.md` and `src/prompts/draft_email.md`, every time. Draft the
+Hebrew version first, then the English. Write them into meta.json (`contacts[*]` message
+fields, `email_draft`), then run:
+
+```bash
+python3 scripts/check_messages.py <slug>
+```
+
+Fix every ✗ and re-run until it passes (exit 0). Fix ⚠ warnings when easy.
+
+meta.json is the only place messages live (the report reads it). Don't write `linkedin.md` or
+`email.md` anymore. Notes and sources can go in `output/<slug>/research.md` if useful.
+
+## Step 8 — Gmail draft (only with an email address)
+
+Use the **first** language in `message_languages` for Gmail; the others stay in the report to
+copy. Attach `cv_file` from meta.json (or the tailored PDF if tailoring ran).
+
+- `dry_run: true`: create a Gmail draft (don't send). Print "Draft saved — review it in Gmail".
+- `dry_run: false`: send it, then record it:
+  `python3 scripts/state.py event --slug <slug> --key email --event sent --lang <lang>`.
+
+## Step 9 — Save the state
+
+```bash
+python3 scripts/state.py add --company "<Company>" --slug "<slug>" --job-title "<title>" \
+  --email-sent-to "<email>" --status "<sent|drafted|email-skipped>"
+```
+
+`add` builds one tracking thread per person (and one for the email) from meta.json. If the
+entry already existed (a re-run), use `python3 scripts/state.py sync --slug <slug>` instead.
+Only pass flags you have values for.
+
+## Step 10 — Report and summary
 
 ```bash
 python3 scripts/generate_report.py <slug>
 ```
 
-This creates `output/<slug>/report.html` and updates `output/index.html`.
+Then print:
 
-Print a short summary:
 ```
-✓ <Company> — <Job Title>
-  Email draft: output/<slug>/email.md
-  Report: output/<slug>/report.html
+✓ <Company> — <Job title>                       Fit 3/5 · good
+  <company one-liner> · <size> · <where>
+  + <top pro>   + <second pro>
+  − <top con>   − <second con>
+  You know:  Dana Example (Senior Android Developer): ask for a referral first
+  People:    Noa Example, HR (job post · high) · Dan Example, lead (medium)
+  Email:     Gmail draft → jobs@company.com   (or: no address, LinkedIn only)
+  CV:        cv/main.pdf (mobile) · missing from CV: Flutter, Dart
+  Next:      send the connect requests from the dashboard: python3 scripts/serve.py
+```
 
-  LinkedIn (send manually):
-  HR:        <url or not found>
-  Team lead: <url or not found>
-  → Drafts in output/<slug>/linkedin.md
+Mention once, when relevant: no `Connections.csv` yet (referrals can't be checked), or no
+hiring team visible (paste the job page next time).
+
+---
+
+## meta.json (schema 2)
+
+```json
+{
+  "schema": 2,
+  "company": "Acme",
+  "job_title": "AI-Native Mobile Engineer",
+  "apply_url": "https://...",
+  "job_source": "linkedin",
+  "website": "https://...",
+  "careers_url": "https://...",
+  "role_card": { "...": "see src/prompts/role_card.md" },
+  "fit_notes": ["+ ...", "- ..."],
+  "email": "jobs@acme.com",
+  "referrals": [ { "name": "...", "position": "...", "company": "...", "url": "...", "connected_on": "...", "match": "exact" } ],
+  "contacts": [
+    {
+      "key": "hr", "kind": "hr", "title": "HR / Recruiter",
+      "name": "...", "name_he": "...", "job_title": "...", "location": "...", "profile": "https://...",
+      "source": "job post", "confidence": "high", "why": "...", "connected": false,
+      "connect_note": "...", "connect_note_he": "...",
+      "first_message": "...", "first_message_he": "...",
+      "followups": [ { "n": 1, "text": "...", "text_he": "...", "drafted_at": "YYYY-MM-DD" } ],
+      "alternates": [ { "name": "...", "job_title": "...", "location": "...", "profile": "...", "why": "...", "confidence": "medium" } ]
+    }
+  ],
+  "email_draft": {
+    "to": "...", "subject": "...", "body": "...", "subject_he": "...", "body_he": "...",
+    "followups": [ { "n": 1, "subject": "Re: ...", "body": "...", "body_he": "..." } ]
+  },
+  "cv": "variant:mobile", "cv_file": "cv/main.pdf",
+  "cv_keywords": { "variant": "mobile", "tex": "cv/main.tex", "matched": ["..."], "missing": ["..."], "note": null },
+  "interview_prep": null
+}
 ```
+
+Contacts with nobody found stay in the list with `"name": null, "profile": null` and a `why`
+saying what was tried. People the user already knows: `"kind": "referral", "connected": true`,
+no connect note.

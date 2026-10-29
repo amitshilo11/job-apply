@@ -2,7 +2,13 @@
 
 Goal: adapt the candidate's LaTeX CV for a specific role (or leave as-is for general use).
 
-Read `cv/main.tex` and this prompt, then write the tailored version directly to `output/<slug>/tailored_cv.tex` (Flow 1, Step 4).
+**Only on request.** The normal path is CV versions the user approved once (`cv_variants` in
+`config/settings.json`, picked by `scripts/cv_keywords.py`) plus a list of the job's missing
+keywords for the user to decide on. Per-role rewriting runs only when the user asks for it in
+this request or `tailor_cv` is true. The base CV is already one page: don't cut strong,
+quantified bullets just to make room. Reorder first, cut last.
+
+Read the CV version picked for this role (`cv_keywords.tex` in meta.json, default `cv/main.tex`) and this prompt, then write the tailored version directly to `output/<slug>/tailored_cv.tex` (Flow 3, Step 3).
 
 ## Rules
 
