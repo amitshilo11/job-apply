@@ -15,13 +15,14 @@ flow. Read the relevant flow file before acting; don't guess at the steps from m
 | `improve the CV for <Company>`, `add Kotlin to my CV for wiz` (in the background) | `python3 scripts/runs.py cv --slug <slug> --add <keyword> --notes "..."`: rewrites `output/<slug>/tailored_cv.tex` (`src/prompts/tailor_cv.md`), shown on the report |
 | `what's today`, `show follow-ups`, `check due`, `draft follow-ups` | `src/flow1.md` (Follow-up sub-flow, near the end) |
 | `find jobs`, `check job alerts`, `watch <Company>` | `src/flow4.md` |
+| `import my LinkedIn export <zip>`, `catch up from LinkedIn` | `python3 scripts/linkedin_import.py <zip or folder>` (`--dry-run` first): records connect/accept/message/reply steps for tracked people, adds what they sent to the writing samples, copies `Connections.csv` |
 | `got an interview at <Company>` | `src/prompts/interview_prep.md` |
 | `process company Wiz`, `process next from queue`, `process the queue` | `src/flow1.md` |
 | `add Wiz to queue`, `add these to queue: ...` | `src/flow2.md` |
 | `find startups` | parked: say so and offer `src/flow4.md` (see `.claude/commands/find-startups.md`) |
 
 Slash commands in `.claude/commands/`: `/apply-role`, `/today`, `/followups`, `/sent`,
-`/dashboard`, `/job-alerts`, `/interview-prep`, `/stats`, `/process`, `/add-queue`.
+`/dashboard`, `/job-alerts`, `/interview-prep`, `/stats`, `/process`, `/add-queue`, `/linkedin-import`.
 
 ## Before running Flow 1 or Flow 3
 
@@ -67,6 +68,7 @@ All in `config/settings.json`:
 - `state/skipped.json` — companies ruled out, with a reason. `state/queue.json` — Flow 1 queue.
 - `state/sent_log.json` — every message marked sent (draft vs. what was sent).
 - `state/seen_jobs.json` — jobs already shown by Flow 4.
+- `state/linkedin_import.json` — which sent texts `scripts/linkedin_import.py` already turned into samples.
 - `state/runs.json` — background runs (`scripts/runs.py`); each has `state/runs/<id>/` with the
   prompts sent and Claude's event stream.
 
@@ -79,11 +81,13 @@ python3 scripts/state.py update --slug wiz --stage interview --note "phone scree
 python3 scripts/state.py today          # what's due (also auto-closes finished threads)
 python3 scripts/state.py show --slug wiz
 python3 scripts/state.py person --slug wiz --key hr --name "Noa Cohen" --name-he "נועה"   # fills {name} in
+python3 scripts/state.py close-thread --slug wiz --key hr --reason wrong_person --why left   # next alternate moves up
 python3 scripts/samples.py add --slug wiz --key hr --field connect_note_he --text "..."   # what was really sent
 ```
 
 When the user tells you what happened ("I sent the connect note to Noa", "Wiz rejected me",
-"the lead at Snyk replied", "got an interview at Cato", "the HR at Wiz is Noa Cohen"), run the matching command yourself
+"the lead at Snyk replied", "got an interview at Cato", "the HR at Wiz is Noa Cohen", "Noa at Wiz is
+the wrong person, she left"), run the matching command yourself
 (and `samples.py add` if they paste the text they sent), then `python3 scripts/generate_report.py <slug>`.
 
 ## Output per application

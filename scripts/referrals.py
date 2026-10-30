@@ -32,7 +32,8 @@ GENERIC = LEGAL | {"group", "technologies", "technology", "tech", "labs", "lab",
                    "solutions", "networks", "ai", "io", "global", "international", "health", "healthcare",
                    "robotics", "security", "medical", "medtech"}
 HOW_TO = ("No connections file yet. Export it from LinkedIn: Settings & Privacy → Data privacy → "
-          "Get a copy of your data → Connections → Request archive. Save Connections.csv in config/.")
+          "Get a copy of your data → Connections (plus Messages and Invitations) → Request archive, then "
+          "run python3 scripts/linkedin_import.py <the zip>. Or save Connections.csv in config/.")
 
 
 def csv_path():

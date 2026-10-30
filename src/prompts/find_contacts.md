@@ -56,6 +56,15 @@ team"** with the poster's name and title (usually a recruiter, sometimes the hir
 - No hiring team visible: continue, and add a tip to the summary once: "Paste the job page
   (Cmd+A, Cmd+C) or a screenshot next time and I'll get the hiring team from it."
 
+## 2b. The company's LinkedIn page
+
+Search `site:linkedin.com/company "<Company>"` and take the company page whose name (and
+website or location, when shown) matches. Write its exact URL to `meta.json` →
+`linkedin_company_url` (e.g. `https://www.linkedin.com/company/acme/`). Never build it from the
+company name: a wrong page is worse than none, so `null` when unsure. The report turns it into
+links to the company's **People tab** filtered by recruiter / team lead, which only lists
+people who work there now: the quickest way for the user to check or replace a contact.
+
 ## 3. Who to target, by company size
 
 | Size | HR / recruiter slot | Lead slot |
@@ -94,8 +103,11 @@ From the search result's title and snippet (don't guess beyond them):
 Confidence: **high** = the job poster, or all three confirmed. **medium** = two of three.
 **low** = only one. Use a low one only if there's nothing better, and say why in `why`.
 
-Keep the best as the contact; up to two others go in `alternates` (same fields) so the user
-can switch with one click on their profile.
+Keep the best as the contact; up to two others go in `alternates` (same fields), best first.
+When the user marks a contact as the **wrong person** in the report (left, another team,
+another country), the first alternate takes the slot and its first name goes into the
+messages, so put the one you'd pick next first. A contact's `wrong_people` lists who was
+already ruled out: never suggest them again for this application.
 
 ## 6. What to write
 
@@ -124,8 +136,8 @@ For each contact in `meta.json` → `contacts`:
   Dan → דן). Otherwise `null`; the Hebrew message then greets with the English spelling.
 - `profile`: the exact URL from the search result. **Never build or guess a profile URL.**
 - Nobody good found for a slot: still add the slot with `"profile": null, "name": null` and
-  `"why": "not found: <what you tried>"`. The report shows LinkedIn search links (recruiters,
-  mobile leads, everyone at the company in Israel) so the user can find someone in seconds.
+  `"why": "not found: <what you tried>"`. The report shows the company's People tab
+  (from `linkedin_company_url`) and LinkedIn search links so the user can find someone in seconds.
 - An HR or team lead slot with nobody found still gets its messages (connect note and first
   message, both languages), written to that role with `{name}` where the first name goes
   (`Hi {name},` / `היי {name},`). The user finds the person, fills the name in from the report

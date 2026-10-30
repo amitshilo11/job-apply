@@ -75,6 +75,14 @@ def act_event(p):
 def act_close_thread(p):
     entries = st.load_state()
     entry = _entry(entries, p.get("slug"))
+    if p.get("reason") == "wrong_person" and not p.get("undo"):
+        # The slot gets the next person found (their name goes into the messages), or {name} again
+        meta = st.load_meta(entry["slug"])
+        _, alt = st.replace_wrong_person(entry, meta, p.get("key"), p.get("why") or "other")
+        st.save_meta(entry["slug"], meta)
+        st.save_state(entries)
+        return {"learned": f"Saved. Next up: {alt.get('name')}." if alt else
+                "Saved. Nobody else was found: the messages say {name} again, fill the person in when you find them."}
     st.close_thread(entry, p.get("key"), p.get("reason") or "closed", undo=bool(p.get("undo")))
     st.save_state(entries)
     return {}

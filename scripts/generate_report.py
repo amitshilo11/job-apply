@@ -296,6 +296,23 @@ def hidden_text(box_id, text):
     return f'<div class="msg-text" id="{esc(box_id)}" hidden>{esc(text)}</div>'
 
 
+COMPANY_PAGE_RE = re.compile(r"^https?://(?:[a-z]{2,3}\.)?(?:www\.)?linkedin\.com/company/([^/?#]+)", re.IGNORECASE)
+
+
+def people_tab_links(company_url, settings):
+    """The company's LinkedIn People tab, filtered by keyword. It lists only people who work
+    there now, so it doesn't turn up people who left (keyword searches do)."""
+    m = COMPANY_PAGE_RE.match(company_url or "")
+    if not m:
+        return []
+    base = f"https://www.linkedin.com/company/{m.group(1)}/people/?keywords="
+    target = (settings.get("target_function") or "").split()
+    links = [("Recruiters", base + quote("recruiter")), ("Team leads", base + quote("team lead"))]
+    if target:
+        links.append((target[0].capitalize() + " people", base + quote(target[0])))
+    return links + [("Everyone", f"https://www.linkedin.com/company/{m.group(1)}/people/")]
+
+
 def linkedin_search_links(company, settings):
     """One-click LinkedIn people searches (Israel only) to check or replace a contact."""
     def people(query):
@@ -568,6 +585,13 @@ document.addEventListener('click', function(e) {
     return post('event', p);
   }
   if (act === 'close-thread') return post('close-thread', {slug: d.slug, key: d.key, reason: d.reason || 'closed', undo: !!d.undo});
+  if (act === 'wrong-person') {
+    var why = window.prompt('Why is ' + d.name + ' the wrong person?\\n1  left the company\\n2  another team or role\\n'
+                            + '3  another country\\n4  other\\n\\nThe next person found for this slot moves up.', '1');
+    if (why === null) return;
+    why = {'1': 'left', '2': 'team', '3': 'country'}[why.trim()] || 'other';
+    return post('close-thread', {slug: d.slug, key: d.key, reason: 'wrong_person', why: why});
+  }
   if (act === 'task') return post('task', {slug: d.slug, task: d.task, done: d.done === '1'});
   if (act === 'stage') {
     var note = '';
@@ -1243,6 +1267,10 @@ def thread_controls(slug, thread, tstate):
             buttons.append(ev_btn("They accepted", slug, key, "accepted", cls="btn btn-green"))
         if ev.get("message_sent") or ev.get("sent") or (thread.get("connected") and ev):
             buttons.append(ev_btn("They replied", slug, key, "replied", cls="btn btn-green"))
+        if thread.get("name") or thread.get("profile"):
+            buttons.append(button("Wrong person", {"data-act": "wrong-person", "data-slug": slug, "data-key": key,
+                                                   "data-name": thread.get("name") or "this person"},
+                                  "btn btn-quiet"))
         buttons.append(button("Close", {"data-act": "close-thread", "data-slug": slug, "data-key": key,
                                         "data-reason": "closed"}, "btn btn-quiet"))
     return (f'<div class="thread-status"><span class="label">{esc(label)}</span>{sub}'
@@ -1297,6 +1325,10 @@ def contact_block(slug, contact, key, thread, tstate, settings, idx):
         badges_html = " " + badge("badge-amber", "name to fill in")
         profile_html = person_form(slug, key, any(st.NAME_SLOT in (contact.get(f) or "") for f in st.MESSAGE_FIELDS))
     why = f'<div class="why">{esc(contact.get("why"))}</div>' if contact.get("why") else ""
+    wrong = contact.get("wrong_people") or []
+    if wrong:
+        why += '<div class="meta" style="font-size:.82rem">Not them: ' + "; ".join(
+            esc(f'{w.get("name") or "someone"} ({w.get("why")})') for w in wrong) + "</div>"
 
     ev = (thread or {}).get("events") or {}
     status = (tstate or {}).get("status")
@@ -1392,7 +1424,8 @@ def contact_block(slug, contact, key, thread, tstate, settings, idx):
             why_a = f' <span class="meta">— {esc(a.get("why"))}</span>' if a.get("why") else ""
             items += f"<li>{link} {bits}{conf_b}{why_a}</li>"
         alt_html = (f'<details class="alternates"><summary>Other people found ({len(alternates)})</summary>'
-                    f'<ul>{items}</ul><div class="hint">To switch, tell Claude: "use &lt;name&gt; instead at {esc(slug)}".</div>'
+                    f'<ul>{items}</ul><div class="hint">"Wrong person" above moves the first one up and puts their '
+                    f'name in the messages.</div>'
                     f"</details>")
 
     controls = thread_controls(slug, thread, tstate) if thread else ""
@@ -1451,13 +1484,22 @@ def people_card(slug, entry, data, settings, today):
     if not blocks:
         blocks = '<p class="skipped-note">No contacts yet.</p>'
 
-    links = " · ".join(f'<a href="{esc(url)}" target="_blank">{esc(label)}</a>'
-                       for label, url in linkedin_search_links(company, settings))
+    def link_list(pairs):
+        return " · ".join(f'<a href="{esc(url)}" target="_blank">{esc(label)}</a>' for label, url in pairs)
+
+    tab = people_tab_links(data.get("linkedin_company_url"), settings)
+    search = link_list(linkedin_search_links(company, settings))
+    if tab:
+        links_html = (f'<div class="search-links">Who works at {esc(company)} now (their LinkedIn People tab): '
+                      f'{link_list(tab)}</div><div class="search-links">Wider searches (can include people '
+                      f'who left): {search}</div>')
+    else:
+        links_html = f'<div class="search-links">Check or find others on LinkedIn: {search}</div>'
     return f"""<div class="card">
   <div class="section-title">People</div>
   {known_html}
   {blocks}
-  <div class="search-links">Check or find others on LinkedIn: {links}</div>
+  {links_html}
 </div>"""
 
 
@@ -1803,6 +1845,11 @@ def stats_card(stats):
         for label, s in stats[section].items():
             rows += row(label, s, "sep" if first else "")
             first = False
+    wrong_rows = "".join(f'<tr><td>{esc(source)}</td><td colspan="3">{s["wrong"]} of {s["people"]} were '
+                         f'the wrong person</td></tr>' for source, s in (stats.get("by_source") or {}).items()
+                         if s["wrong"] or source != "unknown")
+    if any(s["wrong"] for s in (stats.get("by_source") or {}).values()):
+        rows += '<tr class="sep"><th colspan="4" style="text-align:left">Found via</th></tr>' + wrong_rows
     small = ('<div class="footnote">Small numbers so far: wait for 10+ people before trusting the rates.</div>'
              if stats["all"]["sent"] < 10 else "")
     return f"""<div class="card">

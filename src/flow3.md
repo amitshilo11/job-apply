@@ -88,8 +88,9 @@ said to go ahead). If not, log the skip with the verdict line as the reason and 
 
 Follow `src/prompts/find_contacts.md`: people the user named in the request first (§0), then
 people they already know (`scripts/referrals.py`), then the hiring team from the job post,
-then the right roles for the company's size, then verified search. Write `contacts`,
-`referrals` and `alternates` into meta.json. Never guess a profile URL.
+then the company's LinkedIn page, the right roles for the company's size, then verified search.
+Write `contacts`, `referrals`, `alternates` and `linkedin_company_url` into meta.json. Never
+guess a profile or company URL.
 
 ## Step 6 — Email address (second channel)
 
@@ -170,6 +171,7 @@ hiring team visible (paste the job page next time).
   "job_source": "linkedin",
   "website": "https://...",
   "careers_url": "https://...",
+  "linkedin_company_url": "https://www.linkedin.com/company/... (exact URL from search, or null)",
   "role_card": { "...": "see src/prompts/role_card.md" },
   "fit_notes": ["+ ...", "- ..."],
   "email": "jobs@acme.com",

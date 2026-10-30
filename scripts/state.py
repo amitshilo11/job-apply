@@ -12,7 +12,8 @@ Commands:
   sync         -- rebuild an application's threads from output/<slug>/meta.json, keeping progress
   person       -- fill in the person for a slot drafted with {name} (nobody was found for it)
   event        -- record a step for one person (connect_sent, accepted, message_sent, followup_1...)
-  close-thread -- stop following up with one person (--undo reopens)
+  close-thread -- stop following up with one person (--undo reopens; --reason wrong_person
+                  also brings up the next person found for that slot)
   today        -- what to do today: messages to send, follow-ups due, things to check
   stats        -- accept and reply rates by contact type, language, and note vs. no note
   show         -- one application with its threads and next steps
@@ -92,7 +93,11 @@ CLOSE_REASONS = {
     "ghosted": "No reply after the follow-ups",
     "no_accept": "Never accepted the connect request",
     "closed": "Closed by you",
+    "wrong_person": "Wrong person",
 }
+# Why a contact turned out to be the wrong person (close-thread --reason wrong_person --why ...)
+WRONG_WHY = {"left": "left the company", "team": "another team or role",
+             "country": "another country", "other": "not the right person"}
 KIND_LABELS = {"hr": "HR / recruiter", "lead": "Team lead", "referral": "Referral",
                "email": "Email", "other": "Contact"}
 # Where the first name goes in messages drafted for a slot nobody was found for
@@ -360,7 +365,7 @@ def sync_threads(entry, meta):
         c["key"] = key
         take(key, {"kind": contact_kind(c), "channel": "linkedin", "name": _clean(c.get("name")),
                    "title": _clean(c.get("job_title")), "profile": _clean(c.get("profile")),
-                   "connected": bool(c.get("connected")) or None})
+                   "source": _clean(c.get("source")), "connected": bool(c.get("connected")) or None})
 
     if not contacts:
         for key, url in (("hr", entry.get("hr_url")), ("lead", entry.get("lead_url"))):
@@ -375,7 +380,9 @@ def sync_threads(entry, meta):
             t["events"]["sent"] = entry.get("email_sent_at") or entry.get("created_at") or today_str()
 
     for t in existing.values():
-        if t.get("events"):
+        # Kept for the history and the stats: people already contacted, and people who turned
+        # out to be the wrong ones (their slot now holds someone else)
+        if t.get("events") or t.get("closed") == "wrong_person":
             threads.append(t)
 
     entry["outreach"] = threads
@@ -437,17 +444,79 @@ def set_event(entry, key, event, when=None, lang=None, with_note=None, undo=Fals
     return t
 
 
-def close_thread(entry, key, reason="closed", undo=False):
+def close_thread(entry, key, reason="closed", undo=False, why=None):
     t = get_thread(entry, key)
     if t is None:
         raise ValueError(f"no thread '{key}' on {entry.get('slug')}")
     if undo:
-        t.pop("closed", None)
-        t.pop("closed_at", None)
+        for k in ("closed", "closed_at", "closed_why"):
+            t.pop(k, None)
     else:
         t["closed"] = reason if reason in CLOSE_REASONS else "closed"
         t["closed_at"] = today_str()
+        if why:
+            t["closed_why"] = why
     return t
+
+
+def _swap_first_name(text, old, new, hebrew):
+    """Replace a greeting's first name (and any other mention) with another one."""
+    if not text or not old:
+        return text
+    if hebrew:
+        pattern = r"(?<![\u0590-\u05FF])" + re.escape(old) + r"(?![\u0590-\u05FF])"
+    else:
+        pattern = r"(?<![\w])" + re.escape(old) + r"(?![\w])"
+    return re.sub(pattern, lambda _m: new, text)
+
+
+def replace_wrong_person(entry, meta, key, why="other"):
+    """The person in a contact slot is the wrong one (left, another team, another country).
+
+    Their thread is closed as wrong_person and kept under a new key (for the history and the
+    "contacts by source" stats). The slot gets the first alternate, with the first name swapped
+    in its messages; with no alternate it goes back to {name} so the user can fill someone in.
+    Returns (contact, the alternate now in the slot or None).
+    """
+    why = why if why in WRONG_WHY else "other"
+    contacts = (meta or {}).get("contacts") or []
+    contact = next((c for c, k in zip(contacts, contact_keys(contacts)) if k == key), None)
+    if contact is None:
+        raise ValueError(f"no contact '{key}' in meta.json")
+    old_name = _clean(contact.get("name"))
+    t = get_thread(entry, key)
+    if t is not None:
+        n = sum(1 for x in entry.get("outreach") or [] if str(x.get("key", "")).startswith(f"{key}-wrong-")) + 1
+        t["key"] = f"{key}-wrong-{n}"
+        close_thread(entry, t["key"], "wrong_person", why=why)
+
+    contact.setdefault("wrong_people", []).append({
+        "name": old_name, "profile": _clean(contact.get("profile")), "job_title": contact.get("job_title"),
+        "source": contact.get("source"), "why": WRONG_WHY[why], "date": today_str()})
+    old_first = {"en": old_name.split()[0] if old_name else None,
+                 "he": _clean(contact.get("name_he")) or (old_name.split()[0] if old_name else None)}
+
+    alternates = contact.get("alternates") or []
+    alt = alternates.pop(0) if alternates else None
+    alt_name = _clean((alt or {}).get("name"))
+    new_first = alt_name.split()[0] if alt_name else NAME_SLOT
+    for field in MESSAGE_FIELDS:
+        hebrew = field.endswith("_he")
+        contact[field] = _swap_first_name(contact.get(field), old_first["he" if hebrew else "en"], new_first, hebrew)
+    contact["followups"] = []  # written for the old person's thread
+    for f in ("name", "name_he", "profile", "job_title", "location", "confidence", "connected"):
+        contact.pop(f, None)
+    if alt_name:
+        contact.update({k: v for k, v in alt.items() if k in ("profile", "job_title", "location", "confidence")})
+        contact.update(name=alt_name, name_he=_clean(alt.get("name_he")), source="alternate",
+                       why=alt.get("why") or "Next person found for this slot.")
+    else:
+        contact.update(name=None, profile=None, why=f"not found: {old_name or 'the first person'} was "
+                                                    f"the wrong person ({WRONG_WHY[why]})")
+        alt = None
+    contact["key"] = key
+    sync_threads(entry, meta)
+    return contact, alt
 
 
 def action_label(kind, n=None, total=None, settings=None):
@@ -662,6 +731,16 @@ def compute_stats(entries, today, settings, days=None):
             groups.setdefault(r[field], []).append(r)
         return {(labels or {}).get(k, k): summarize(v) for k, v in sorted(groups.items())}
 
+    # How often the people found were the wrong ones, by where they came from
+    sources = {}
+    for e in entries:
+        for t in e.get("outreach") or []:
+            if t.get("channel") != "linkedin" or not (t.get("name") or t.get("profile")):
+                continue
+            s = sources.setdefault(t.get("source") or "unknown", {"people": 0, "wrong": 0})
+            s["people"] += 1
+            s["wrong"] += t.get("closed") == "wrong_person"
+
     stages = {}
     for e in entries:
         stage = e.get("stage") or "active"
@@ -672,6 +751,7 @@ def compute_stats(entries, today, settings, days=None):
         "by_kind": by("kind", KIND_LABELS),
         "by_lang": by("lang", {"en": "English", "he": "Hebrew"}),
         "by_note": by("note"),
+        "by_source": dict(sorted(sources.items())),
         "stages": stages,
         "applications": len(entries),
         "notes_this_month": notes_this_month(entries, today),
@@ -791,6 +871,16 @@ def cmd_close_thread(args):
     entries = load_state()
     entry = _require_entry(entries, args.slug)
     try:
+        if args.reason == "wrong_person" and not args.undo:
+            meta = load_meta(args.slug)
+            before = (get_thread(entry, args.key) or {}).get("name") or args.key
+            contact, alt = replace_wrong_person(entry, meta, args.key, args.why)
+            save_meta(args.slug, meta)
+            save_state(entries)
+            nxt = (f"next up: {alt.get('name')}" if alt
+                   else f"nobody else found, the messages say {NAME_SLOT} again (fill someone in with `person`)")
+            print(f"{entry['company']} / {before}: wrong person ({WRONG_WHY.get(args.why, args.why)}); {nxt}")
+            return
         t = close_thread(entry, args.key, args.reason, undo=args.undo)
     except ValueError as err:
         print(f"ERROR: {err}", file=sys.stderr)
@@ -890,6 +980,11 @@ def cmd_stats(args):
             print()
             for label, s in data[section].items():
                 line(label, s)
+    if any(s["wrong"] for s in data["by_source"].values()):
+        print("\nWrong person, by where they were found:")
+        for source, s in data["by_source"].items():
+            if s["wrong"] or source != "unknown":
+                print(f"  {source:18s} {s['wrong']} of {s['people']}")
     stages = data["stages"]
     print(f"\nApplications: {data['applications']} — " + ", ".join(
         f"{n} {k}" for k, n in sorted(stages.items(), key=lambda kv: -kv[1])))
@@ -1235,6 +1330,8 @@ def main():
     p_close.add_argument("--slug", required=True)
     p_close.add_argument("--key", required=True)
     p_close.add_argument("--reason", default="closed", choices=sorted(CLOSE_REASONS))
+    p_close.add_argument("--why", default="other", choices=sorted(WRONG_WHY),
+                         help="With --reason wrong_person: left, team, country or other")
     p_close.add_argument("--undo", action="store_true", help="Reopen the thread")
 
     # today

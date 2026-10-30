@@ -220,12 +220,31 @@ writing samples is never flagged.
 
 ## The right people
 
-- **Referrals first.** Export your connections once a month: LinkedIn → Settings & Privacy →
-  Data privacy → Get a copy of your data → Connections. Save `Connections.csv` in `config/`.
-  `python3 scripts/referrals.py "Acme"` (or `--all` for every open application).
-- The report has one-click LinkedIn searches (recruiters, mobile/Android leads, everyone there
-  in Israel) to check or replace a contact.
+- **Referrals first.** `python3 scripts/referrals.py "Acme"` (or `--all` for every open
+  application) lists who you already know there, from `config/Connections.csv`. The LinkedIn
+  import below puts that file in place.
+- The report links to the company's **People tab** on LinkedIn, filtered by recruiter / team
+  lead: it only lists people who work there now. Plus wider LinkedIn searches.
+- **Wrong person?** Click it on the person (left the company, another team, another country):
+  the next person found for that slot moves up and their name goes into the messages. `/stats`
+  shows how often contacts from each source turned out wrong.
 - Nothing on LinkedIn is automated. You send everything.
+
+### Catch up from your LinkedIn export
+
+Clicking Sent / They accepted / They replied is easy to forget. Once in a while (say monthly),
+download your own LinkedIn data and let the agent catch up:
+
+1. LinkedIn → Settings & Privacy → Data privacy → Get a copy of your data → pick
+   **Connections, Messages and Invitations** → Request archive. LinkedIn emails a link to a zip.
+2. `python3 scripts/linkedin_import.py ~/Downloads/<the zip> --dry-run` to see what it found,
+   then without `--dry-run` (or `/linkedin-import <the zip>`).
+
+For every person you're tracking (matched by their LinkedIn link) it records the connect
+request (with or without a note), when they accepted, your first message, follow-ups and their
+reply. Steps you already recorded aren't changed. What you sent them becomes writing samples,
+so drafts learn your real voice. `Connections.csv` is copied to `config/` for referrals.
+Nothing else from your inbox is used, and rerunning with a newer export only adds what's new.
 
 ---
 
@@ -299,6 +318,7 @@ fall back to your CV bullets, marked "fill in".
 | `check_messages.py` | The message checker |
 | `samples.py` | Records what you sent and learns from your edits |
 | `referrals.py` | People you know at a company (from `Connections.csv`) |
+| `linkedin_import.py` | Catches up the tracking and writing samples from your LinkedIn data export |
 | `cv_keywords.py` | Picks the CV version, lists missing job keywords |
 | `watch_jobs.py` | Watchlist: new jobs from company job boards |
 | `rank_jobs.py` | Ranks a list of jobs against your preferences |
