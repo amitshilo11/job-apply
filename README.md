@@ -58,8 +58,7 @@ scheduled task; it runs while the Claude app is open).
   "tailor_cv": false,
 
   "home_location": "<your city>, Israel",
-  "connect_note_max_chars": 200,
-  "linkedin_note_monthly_limit": 5,
+  "linkedin_premium": false,
   "work_days": ["sun", "mon", "tue", "wed", "thu"],
   "followup_schedule_workdays": [4, 5],
   "ghost_after_workdays": 5,
@@ -81,8 +80,10 @@ scheduled task; it runs while the Claude app is open).
 - `dry_run: true` saves Gmail drafts instead of sending.
 - `message_languages`: every message is written once per language. Hebrew is written first and
   natively, never translated. The first language is used for the Gmail draft.
-- `connect_note_max_chars`: LinkedIn free accounts allow about 200 characters per connect note
-  and only a few notes a month. Premium allows 300.
+- `linkedin_premium`: `false` (free account) keeps connect notes to 200 characters and shows how
+  many notes you sent this month (free accounts get about 5). `true` allows 300 characters and
+  drops the monthly count. `connect_note_max_chars` and `linkedin_note_monthly_limit` override
+  either.
 - Follow-up timing is in work days (Sun–Thu): follow-up #1 four work days after your message,
   #2 five work days later, then the thread closes as "no answer" five work days after that.
   A connect request not accepted after 10 work days shows up under "Check".

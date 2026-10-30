@@ -110,6 +110,8 @@ DEFAULT_SETTINGS = {
     "followup_schedule_workdays": [4, 5],
     "ghost_after_workdays": 5,
     "no_accept_after_workdays": 10,
+    # LinkedIn Premium: 300-character connect notes and no monthly cap on notes
+    "linkedin_premium": False,
     "connect_note_max_chars": 200,
     "linkedin_note_monthly_limit": 5,
     "message_languages": ["en", "he"],
@@ -187,7 +189,10 @@ def save_state(entries):
 
 def load_settings():
     settings = dict(DEFAULT_SETTINGS)
-    settings.update(_read_json(SETTINGS_FILE, {}) or {})
+    own = _read_json(SETTINGS_FILE, {}) or {}
+    if own.get("linkedin_premium"):
+        settings.update(connect_note_max_chars=300, linkedin_note_monthly_limit=None)
+    settings.update(own)
     return settings
 
 

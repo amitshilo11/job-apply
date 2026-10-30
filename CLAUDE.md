@@ -47,8 +47,9 @@ All in `config/settings.json`:
 
 - `message_languages` (default `["en", "he"]`) — one version of every message per language. The
   first is the one used for the Gmail draft/send.
-- `connect_note_max_chars` (default 200, LinkedIn's free-account limit) and
-  `linkedin_note_monthly_limit` (shown in Today).
+- `linkedin_premium` (default `false`): free accounts get 200-character connect notes and about
+  5 notes a month (shown in Today); Premium gets 300 and no monthly count. Override with
+  `connect_note_max_chars` / `linkedin_note_monthly_limit`.
 - `work_days` (Sun–Thu), `followup_schedule_workdays` (`[4, 5]`), `ghost_after_workdays`,
   `no_accept_after_workdays` — when follow-ups come due and when a thread closes as no answer.
 - `cv_variants` — CV versions the user approved once; `scripts/cv_keywords.py` picks one per role.

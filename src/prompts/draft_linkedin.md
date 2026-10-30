@@ -53,15 +53,15 @@ Write every message once per language in `message_languages` (`config/settings.j
 ## 4. The messages
 
 ### Connect note (not for people the user already knows)
-- Max `connect_note_max_chars` characters (default **200**: LinkedIn's limit on free accounts),
+- Max `connect_note_max_chars` characters (when it isn't set: 300 with
+  `"linkedin_premium": true` in `config/settings.json`, otherwise 200, the free-account limit),
   counted with the name and company filled in.
 - **With a default:** use it, with the intro that fits the role, and write its role-specific
   slot for this role. Add nothing else (no praise, ask, CV or links). Over the limit: shorten
   it the way the samples file says, without rewriting the rest.
 - **No default yet:** who the user is, in one phrase ("Android developer, 3+ years in <their
   domain>"), why this company (one real thing), a low-pressure line. No ask, no CV, no links.
-  Aim for 100 to 170 characters. Free accounts only get a few notes a month, so it has to earn
-  its place.
+  Aim for 100 to 170 characters even with Premium: short notes get read.
 
 ### First message (after they accept)
 - **With a default:** use it for recruiters, team leads and founders alike, with its
