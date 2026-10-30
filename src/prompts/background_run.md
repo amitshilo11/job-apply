@@ -3,8 +3,9 @@
 A run from the dashboard's **+ New application** form (or `scripts/runs.py start`): Flow 3 with
 nobody watching. A run from a report's **Improve CV** button (or `scripts/runs.py cv`) follows
 the same rules, plus the "Improve CV runs" section at the end. So do runs from a report's **+ Add
-HR** / **+ Add team lead** (`scripts/runs.py person`) and **Write an email** (`scripts/runs.py
-email`) buttons: the "Messages for one person" and "Email runs" sections. The user is somewhere else and only sees the dashboard, which shows your
+HR** / **+ Add team lead** (`scripts/runs.py person`), **Write a general message** (`scripts/runs.py
+general`) and **Write an email** (`scripts/runs.py email`) buttons: the "Messages for one person",
+"General message for an empty slot" and "Email runs" sections. The user is somewhere else and only sees the dashboard, which shows your
 `Step` lines while you work and your final result when you stop. So never ask and wait: follow
 `src/flow3.md` with the changes below, then end with the structured result.
 
@@ -70,15 +71,16 @@ The prompt names the application (`output/<slug>/`), the keywords the user picke
 instructions. Steps (print each `Step <n>: <what>` line):
 
 1. **Step 1: read.** `output/<slug>/meta.json`, `output/<slug>/jd.md`, `config/profile.md`, and
-   the CV to start from: `output/<slug>/tailored_cv.tex` if it exists (an earlier improvement:
-   build on it), else the version in `cv_keywords.tex` (default `cv/main.tex`).
+   the CV the prompt says to start from (the original version, or the user's last improved one).
 2. **Step 2: rewrite.** Write `output/<slug>/tailored_cv.tex` following
-   `src/prompts/tailor_cv.md`. The picked keywords are true for the user: add each one where it
-   fits honestly (the skills line, or a bullet that already describes that kind of work). Never
-   invent a project, employer, number or length of experience to make one fit; a keyword that
-   can't be placed honestly stays out, and the summary says so. The user's instructions win over
-   the style defaults in `tailor_cv.md`, never over its rules 1 and 2. Keep it to one page.
-3. **Step 3: build.** `bash scripts/build_cv.sh <slug>`. Fix LaTeX errors and build again.
+   `src/prompts/tailor_cv.md`: the whole CV, not only the skills line. The picked keywords are
+   true for the user: work each one into the bullet where that work happened, and the skills
+   line. Never invent a project, employer, number or length of experience to make one fit; a
+   keyword that can't be placed honestly stays out, and the summary says so. The user's
+   instructions win over everything in `tailor_cv.md` except its hard rules.
+3. **Step 3: build.** `bash scripts/build_cv.sh <slug>`. It fails on a LaTeX error and when the
+   PDF is longer than one page: fix it (cut lines, never shrink fonts or margins) and build
+   again until it passes.
 4. **Step 4: record.** `python3 scripts/cv_keywords.py --slug <slug> --tailored` (the improved CV
    becomes the one to send for this role, and the keyword list is checked again), then
    `python3 scripts/generate_report.py <slug>`.
@@ -106,6 +108,20 @@ their name, and no messages yet. Steps (print each `Step <n>: <what>` line):
    same company may compare notes. Leave every other contact as it is.
 3. **Step 3: check and save.** `python3 scripts/check_messages.py <slug>` until it passes, then
    `python3 scripts/state.py sync --slug <slug>` and `python3 scripts/generate_report.py <slug>`.
+
+Result: `done`, with a one-line summary. No `needs_input`.
+
+## General message for an empty slot
+
+Nobody was found for an HR or team lead slot, and the user asked for a general message. The
+prompt names the slot (its index in `output/<slug>/meta.json` → `contacts`). Steps:
+
+1. **Step 1: read.** As in "Messages for one person".
+2. **Step 2: draft.** The slot's connect note and first message, Hebrew first, written to that
+   role (HR or team lead), with `{name}` where the first name goes (`Hi {name},` / `היי {name},`).
+   Write them into that contact only and set its `key` to `hr`, `lead`, or `<kind>-<n>` when
+   that key is taken. Leave `name` and `profile` empty: the user fills the person in later.
+3. **Step 3: check and save.** As in "Messages for one person".
 
 Result: `done`, with a one-line summary. No `needs_input`.
 

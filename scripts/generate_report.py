@@ -597,6 +597,10 @@ document.addEventListener('click', function(e) {
     why = {'1': 'left', '2': 'team', '3': 'country'}[why.trim()] || 'other';
     return post('close-thread', {slug: d.slug, key: d.key, reason: 'wrong_person', why: why});
   }
+  if (act === 'cv-original') {
+    if (!confirm('Switch back to the original CV for this role? The improved one is kept for your next Improve CV.')) return;
+    return post('cv-original', {slug: d.slug});
+  }
   if (act === 'task') return post('task', {slug: d.slug, task: d.task, done: d.done === '1'});
   if (act === 'stage') {
     var note = '';
@@ -643,6 +647,9 @@ var RUN_TEXT = {
        stopped: '✗ Improving the CV stopped', details: 'What changed'},
   person: {name: 'Messages', going: 'Drafting the messages', done: '✓ Messages drafted', ready: 'The new messages are ready.',
            stopped: '✗ Drafting the messages stopped', details: 'Summary'},
+  general: {name: 'General message', going: 'Writing a general message', done: '✓ General message drafted',
+            ready: 'The general message is ready: fill the name in when you find someone.',
+            stopped: '✗ Writing the general message stopped', details: 'Summary'},
   email: {name: 'Email', going: 'Writing the email', done: '✓ Email drafted', ready: 'The email is ready.',
           stopped: '✗ Writing the email stopped', details: 'Summary'}
 };
@@ -718,14 +725,14 @@ function refreshRuns() {
   }).catch(function() { RUNS.timer = setTimeout(refreshRuns, 10000); });
 }
 function startRun(form, payload, toast) {
-  var btn = form.querySelector('[type=submit]');
+  var btn = form ? form.querySelector('[type=submit]') : {};
   btn.disabled = true;
   fetch('/api/run-start', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Job-Agent': '1'},
     body: JSON.stringify(payload)})
     .then(function(r) { return r.json(); })
     .then(function(res) {
       if (!res.ok) throw new Error(res.error || 'failed');
-      closeModals(); form.reset();
+      closeModals(); if (form) form.reset();
       showToast(toast, 4500);
       RUNS.active[payload.kind] = true; refreshRuns();
     })
@@ -739,8 +746,16 @@ document.addEventListener('click', function(e) {
   if (add) {
     var f = document.getElementById('person-add-form');
     f.elements.person_kind.value = add.dataset.kind;
+    f.elements.slot.value = add.dataset.slot || '';
     document.getElementById('person-modal-title').textContent = add.dataset.kind === 'lead' ? 'Add a team lead' : 'Add an HR person';
     return openModal('person-modal');
+  }
+  var gen = e.target.closest('[data-act="general-msg"]');
+  if (gen) {
+    if (!SERVED) return showOffline();
+    gen.disabled = true;
+    return startRun(null, {kind: 'general', slug: gen.dataset.slug, slot: +gen.dataset.slot},
+                    'Started. The message shows up here when it\'s ready.');
   }
   if (e.target.closest('[data-close-modal]') || e.target.classList.contains('modal-overlay')) return closeModals();
   var b = e.target.closest('[data-run-act]');
@@ -751,7 +766,9 @@ document.addEventListener('DOMContentLoaded', function() {
   if (cv) cv.addEventListener('submit', function(e) {
     e.preventDefault();
     var keywords = Array.prototype.map.call(cv.querySelectorAll('input[name=kw]:checked'), function(x) { return x.value; });
-    startRun(cv, {kind: 'cv', slug: cv.dataset.slug, keywords: keywords, notes: cv.elements.notes.value.trim()},
+    var original = cv.querySelector('input[name=start][value=original]:checked');
+    startRun(cv, {kind: 'cv', slug: cv.dataset.slug, keywords: keywords, notes: cv.elements.notes.value.trim(),
+                  from_original: !!original},
              'Started. The improved CV shows up here when it\'s ready.');
   });
   var em = document.getElementById('email-form');
@@ -766,7 +783,8 @@ document.addEventListener('DOMContentLoaded', function() {
     var f = pf.elements;
     pf.querySelector('[type=submit]').disabled = true;
     post('add-person', {slug: pf.dataset.slug, person_kind: f.person_kind.value, name: f.name.value.trim(),
-                        name_he: f.name_he.value.trim(), profile: f.profile.value.trim(), notes: f.notes.value.trim()});
+                        name_he: f.name_he.value.trim(), profile: f.profile.value.trim(), notes: f.notes.value.trim(),
+                        slot: f.slot.value === '' ? null : +f.slot.value});
   });
   refreshRuns();
 });
@@ -1096,6 +1114,10 @@ def write_page(path, html):
     os.replace(tmp, path)
 
 
+# The tab icon (assets/favicon.svg), inline so it shows on file:// pages too
+FAVICON = "data:image/svg+xml," + quote(read_file(os.path.join(ROOT, "assets", "favicon.svg")).strip())
+
+
 def page(title, css, body, extra_js=""):
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -1103,7 +1125,7 @@ def page(title, css, body, extra_js=""):
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{esc(title)}</title>
-<link rel="icon" href="data:,">
+<link rel="icon" type="image/svg+xml" href="{FAVICON}">
 <style>{BASE_CSS}{css}</style>
 </head>
 <body>
@@ -1353,9 +1375,21 @@ def contact_block(slug, contact, key, thread, tstate, settings, idx):
     kind = st.contact_kind(contact)
     kind_label = st.KIND_LABELS.get(kind, "Contact")
     if key is None:
+        btns = ""
+        if kind in ("hr", "lead"):
+            btns = ('<div class="add-people">'
+                    + button(f"+ Add {'HR' if kind == 'hr' else 'team lead'}",
+                             {"data-act": "add-person", "data-kind": kind, "data-slot": idx}, "btn btn-light")
+                    + button("Write a general message", {"data-act": "general-msg", "data-slot": idx,
+                                                         "data-slug": slug}, "btn btn-light")
+                    + "</div>")
+        why = contact.get("why") or ""
+        tried = f'<div class="why">{esc(why)}</div>' if why and not why.lower().startswith("not found") else (
+            f'<div class="meta" style="font-size:.82rem">{esc(why)}</div>' if why else "")
         return (f'<div class="contact missing"><div class="contact-kind">{esc(kind_label)}</div>'
-                f'<p class="skipped-note" style="margin-top:.3rem">Nobody found. Try the LinkedIn searches '
-                f'at the bottom of this card.</p></div>')
+                f'<p class="skipped-note" style="margin-top:.3rem">Nobody found, so no messages yet. Found someone '
+                f'(LinkedIn searches at the bottom of this card)? Add them. Or get a general message with '
+                f'<code>{{name}}</code> to fill in later.</p>{tried}{btns}</div>')
 
     name = contact.get("name") or ""
     sub_bits = [b for b in (contact.get("job_title"), contact.get("location")) if b]
@@ -1534,6 +1568,10 @@ def people_card(slug, entry, data, settings, today):
                       f'Ask them first: a referral beats a cold message.<ul>{items}</ul></div>')
 
     blocks = ""
+    empty = {}  # the first slot nobody was found for, per kind: "+ Add" fills it
+    for idx, (c, key) in enumerate(zip(contacts, keys)):
+        if key is None:
+            empty.setdefault(st.contact_kind(c), idx)
     for idx, (c, key) in enumerate(zip(contacts, keys)):
         thread = st.get_thread(entry, key) if key else None
         tstate = st.thread_state(entry, thread, today, settings) if thread else None
@@ -1553,8 +1591,10 @@ def people_card(slug, entry, data, settings, today):
     else:
         links_html = f'<div class="search-links">Check or find others on LinkedIn: {search}</div>'
     add = ('<div class="add-people">'
-           + button("+ Add HR", {"data-act": "add-person", "data-kind": "hr"}, "btn btn-light")
-           + button("+ Add team lead", {"data-act": "add-person", "data-kind": "lead"}, "btn btn-light")
+           + button("+ Add HR", {"data-act": "add-person", "data-kind": "hr", "data-slot": empty.get("hr", "")},
+                    "btn btn-light")
+           + button("+ Add team lead", {"data-act": "add-person", "data-kind": "lead",
+                                        "data-slot": empty.get("lead", "")}, "btn btn-light")
            + "</div>")
     return f"""<div class="card">
   <div class="section-title">People</div>
@@ -1562,6 +1602,7 @@ def people_card(slug, entry, data, settings, today):
   {blocks}
   {add}
   <div class="cv-run run-box" data-kind="person" data-slug="{esc(slug)}" hidden></div>
+  <div class="cv-run run-box" data-kind="general" data-slug="{esc(slug)}" hidden></div>
   {links_html}
 </div>
 {add_person_form_html(slug, company)}"""
@@ -1573,6 +1614,7 @@ def add_person_form_html(slug, company):
   <form class="modal" id="person-add-form" data-slug="{esc(slug)}" autocomplete="off">
     <h3 id="person-modal-title">Add someone at {esc(company)}</h3>
     <input type="hidden" name="person_kind" value="hr">
+    <input type="hidden" name="slot" value="">
     <p class="form-note">They get their own connect note and first message, drafted in the background
     (a minute or two), and their own tracking.</p>
     <label class="field">Full name<input type="text" name="name" required maxlength="200"></label>
@@ -1691,8 +1733,9 @@ def cv_card(slug, data):
     kind = data.get("cv") or "base"
     # Older runs didn't record which CV went out; their tailored PDF is the one that was sent
     has_tailored = os.path.exists(os.path.join(out_dir, "tailored_cv.pdf"))
-    if has_tailored and (kind == "tailored" or not data.get("cv")):
-        href, title = "tailored_cv.pdf", "Tailored CV"
+    improved = has_tailored and (kind == "tailored" or not data.get("cv"))
+    if improved:
+        href, title = "tailored_cv.pdf", "CV, improved for this role"
     else:
         cv_file = data.get("cv_file") or "cv/main.pdf"
         href = "../../" + cv_file
@@ -1711,16 +1754,18 @@ def cv_card(slug, data):
                    + "".join(f'<span class="chip have">{esc(x)}</span>' for x in kw.get("matched") or [])
                    + "</div>")
     improve = button("Improve CV", {"data-act": "improve-cv"}, "btn")
+    if improved:
+        improve += button("Back to original", {"data-act": "cv-original", "data-slug": slug}, "btn btn-light")
     return f"""<div class="card" id="cv">
   <div class="section-title">{esc(title)}<span class="cv-buttons">{improve}<a class="btn btn-light" href="{esc(href)}" download>Download PDF</a></span></div>
   {kw_html}
   <div class="cv-run run-box" data-kind="cv" data-slug="{esc(slug)}" hidden></div>
   <iframe class="pdf-frame" src="{esc(href)}"></iframe>
 </div>
-{cv_form_html(slug, kw.get("missing") or [])}"""
+{cv_form_html(slug, kw.get("missing") or [], improved)}"""
 
 
-def cv_form_html(slug, missing):
+def cv_form_html(slug, missing, improved=False):
     """The Improve CV form: pick the job's keywords that are true for you, say what else to change."""
     if missing:
         checks = "".join(f'<label class="check"><input type="checkbox" name="kw" value="{esc(k)}"> {esc(k)}</label>'
@@ -1730,14 +1775,22 @@ def cv_form_html(slug, missing):
                     f'<div class="kw-checks">{checks}</div>')
     else:
         keywords = '<p class="form-note">Every keyword from the job is already on this CV.</p>'
+    start = ('<div class="form-section">Start from</div>'
+             '<label class="check"><input type="radio" name="start" value="improved" checked> '
+             'The improved CV shown here (keeps its changes)</label>'
+             '<label class="check"><input type="radio" name="start" value="original"> The original CV</label>'
+             if improved else "")
     return f"""<div id="cv-modal" class="modal-overlay">
   <form class="modal modal-wide" id="cv-form" data-slug="{esc(slug)}" autocomplete="off">
     <h3>Improve the CV for this role</h3>
-    <p class="form-note">Claude rewrites the CV in the background and builds the PDF; you can close
-    this page. It never adds anything that isn't true, and the result replaces the CV shown here.</p>
+    <p class="form-note">Claude reworks the whole CV for this job in the background (summary,
+    experience bullets, projects and skills, adding and cutting so it stays one page) and builds
+    the PDF; you can close this page. It never adds anything that isn't true. The original stays:
+    <b>Back to original</b> on this card switches to it.</p>
+    {start}
     {keywords}
     <label class="field">What else to change (optional)
-      <textarea name="notes" maxlength="4000" placeholder="e.g. put the BLE work first, shorten the older jobs"></textarea></label>
+      <textarea name="notes" maxlength="4000" placeholder="e.g. add that I built the BLE pairing flow at Assac, put the SDK work first, cut the Menudiz project"></textarea></label>
     <div class="modal-actions">
       <button type="button" class="btn btn-quiet" data-close-modal>Cancel</button>
       <button type="submit" class="btn">Improve</button>

@@ -352,10 +352,22 @@ def set_person(meta, key, name, name_he=None, profile=None):
     return contact
 
 
-def add_contact(meta, kind, name, name_he=None, profile=None, note=None):
-    """Another person the user found (a second recruiter, another team lead), added from the
-    report. Gets its own key and thread; its messages are drafted by a background run.
-    Returns the new key."""
+def empty_slot(meta, slot):
+    """The contact at index `slot` if it's a slot nobody was found for (no person, no messages)."""
+    contacts = (meta or {}).get("contacts") or []
+    try:
+        contact = contacts[int(slot)]
+    except (TypeError, ValueError, IndexError):
+        raise ValueError("That slot isn't on this application anymore: reload the page")
+    if _has_person(contact) or _has_draft(contact):
+        raise ValueError("That slot already has someone: reload the page")
+    return contact
+
+
+def add_contact(meta, kind, name, name_he=None, profile=None, note=None, slot=None):
+    """A person the user found, added from the report: into the empty slot `slot` (nobody was
+    found there), or as another one (a second recruiter, another team lead). Gets its own key
+    and thread; its messages are drafted by a background run. Returns the key."""
     if kind not in ("hr", "lead"):
         raise ValueError("Add an HR person or a team lead")
     name, name_he, profile = _clean(name), _clean(name_he), _clean(profile)
@@ -365,15 +377,19 @@ def add_contact(meta, kind, name, name_he=None, profile=None, note=None):
     if profile and any(_clean(c.get("profile")) == profile for c in contacts):
         raise ValueError(f"{name} is already on this application")
     used = set(k for k in contact_keys(contacts) if k)
-    n = 2
-    while f"{kind}-{n}" in used:
-        n += 1
-    key = f"{kind}-{n}"
+    key, n = kind, 2
+    while key in used:
+        key, n = f"{kind}-{n}", n + 1
     contact = {"key": key, "kind": kind, "title": KIND_LABELS[kind], "name": name, "profile": profile,
                "source": "you", "confidence": "high", "why": _clean(note) or "You added them."}
     if name_he:
         contact["name_he"] = name_he
-    contacts.append(contact)
+    if slot is not None and str(slot) != "":
+        found = empty_slot(meta, slot)
+        found.clear()
+        found.update(contact)
+    else:
+        contacts.append(contact)
     return key
 
 

@@ -105,11 +105,14 @@ Regenerate after bulk changes: `python3 scripts/generate_report.py --all`.
 `claude -p` (the CLI's own login) on Flow 3 with the rules in `src/prompts/background_run.md`,
 one run at a time, writing only under `output/` and changing state only through the scripts.
 The dashboard shows each run's progress, its question when it needs the user, and the result.
-A report's **Improve CV** button starts the other kind of run: the CV rewritten for that role
-with the job keywords the user ticked (true for them) and their instructions.
+A report's **Improve CV** button starts the other kind of run: the whole CV reworked for that
+role (one page, cutting and adding) with the job keywords the user ticked (true for them) and
+their instructions. Applications start with the original CV; **Back to original** returns to it.
 
-No HR or team lead found: the slot still gets its messages, with `{name}` where the first name
-goes. The user fills the person in from the report (or `state.py person`) and tracks it as usual.
+No HR or team lead found: the slot gets no messages. On the report the user adds the person
+(**+ Add**, `runs.py person --slot <n>`) or asks for a general message with `{name}` where the
+first name goes (**Write a general message**, `runs.py general --slot <n>`), then fills the
+person in from the report (or `state.py person`) and tracks it as usual.
 
 ## Conventions
 

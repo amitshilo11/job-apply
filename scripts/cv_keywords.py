@@ -14,6 +14,7 @@ Usage:
   python3 scripts/cv_keywords.py --slug acme                  # pick + compare, saves to meta.json
   python3 scripts/cv_keywords.py --slug acme --title "Mobile Engineer" --no-write
   python3 scripts/cv_keywords.py --slug acme --tailored     # after improving output/acme/tailored_cv.tex
+  python3 scripts/cv_keywords.py --slug acme --original     # back to the original version
   python3 scripts/cv_keywords.py --jd-file jd.txt --cv cv/main.tex
 """
 
@@ -131,6 +132,8 @@ def main():
     parser.add_argument("--cv", help="Compare against this .tex instead of picking a variant")
     parser.add_argument("--tailored", action="store_true",
                         help="Use output/<slug>/tailored_cv.tex: this role's improved CV becomes the one to send")
+    parser.add_argument("--original", action="store_true",
+                        help="Go back to the original CV version for this role (undo the improved one)")
     parser.add_argument("--no-write", action="store_true", help="Don't save the result to meta.json")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -144,6 +147,9 @@ def main():
     entry = find_entry(load_state(), args.slug) if args.slug else None
     title = args.title or (entry or {}).get("job_title") or (meta or {}).get("job_title") or (meta or {}).get("best_fit") or ""
 
+    original = (meta or {}).get("cv_original") or {}
+    if args.original and original.get("tex"):
+        args.cv = original["tex"]
     if args.tailored:
         if not args.slug:
             parser.error("--tailored needs --slug")
@@ -173,7 +179,19 @@ def main():
         result["build_hint"] = f"bash scripts/build_cv.sh {build}"
 
     if args.slug and meta is not None and not args.no_write:
-        meta["cv"] = "tailored" if args.tailored else (f"variant:{name}" if name != "base" else "base")
+        if args.tailored and meta.get("cv") != "tailored":
+            # Remember the version it replaces, for "Back to the original" and the next Improve CV
+            original = {"cv": meta.get("cv") or "base", "cv_file": meta.get("cv_file"),
+                        "tex": (meta.get("cv_keywords") or {}).get("tex") or "cv/main.tex"}
+            if original["tex"].endswith("tailored_cv.tex"):
+                original = {"cv": "base", "cv_file": "cv/main.pdf", "tex": "cv/main.tex"}
+            meta["cv_original"] = original
+        if args.tailored:
+            meta["cv"] = "tailored"
+        elif args.original and original.get("cv"):
+            meta["cv"] = original["cv"]
+        else:
+            meta["cv"] = f"variant:{name}" if name != "base" else "base"
         meta["cv_file"] = result["pdf"]
         meta["cv_keywords"] = {k: result[k] for k in ("variant", "tex", "matched", "missing", "note")}
         save_meta(args.slug, meta)

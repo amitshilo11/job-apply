@@ -1,56 +1,74 @@
 # Prompt: Tailor CV
 
-Goal: adapt the candidate's LaTeX CV for a specific role (or leave as-is for general use).
+Goal: a version of the user's LaTeX CV that fits one role. It reads like the same CV, changed
+where it matters for this job: the experience and projects tell the story the job asks for, not
+only the skills line.
 
-**Only on request.** The normal path is CV versions the user approved once (`cv_variants` in
-`config/settings.json`, picked by `scripts/cv_keywords.py`) plus a list of the job's missing
-keywords for the user to decide on. Per-role rewriting runs only when the user asks for it in
-this request or `tailor_cv` is true. The base CV is already one page: don't cut strong,
-quantified bullets just to make room. Reorder first, cut last.
+**Only on request.** By default an application uses the CV version the user approved
+(`cv_variants` in `config/settings.json`, picked by `scripts/cv_keywords.py`), as it is: the
+original comes first. Rewriting runs when the user presses **Improve CV** on the report
+(`scripts/runs.py cv`), asks for it in the request, or `tailor_cv` is true.
 
-Read the CV version picked for this role (`cv_keywords.tex` in meta.json, default `cv/main.tex`) and this prompt, then write the tailored version directly to `output/<slug>/tailored_cv.tex` (Flow 3, Step 3).
+Start from the CV the run names (the original version, or the user's last improved one) and
+write the result to `output/<slug>/tailored_cv.tex`.
 
-## Rules
+## Hard rules
 
-1. NEVER add skills or experience the candidate doesn't have.
-2. NEVER change dates, company names, or titles.
-3. Reorder, rephrase, or remove bullets to emphasize what's most relevant — dropping irrelevant ones is preferred over keeping filler.
-4. **Target output: one page.** If the CV is longer, aggressively cut:
-   - Remove entire bullet points that don't support the role.
-   - Remove entire positions if they add no value for this role (keep at least the 2 most recent).
-   - Shorten verbose bullets to a single concise line.
-   - Remove optional sections (e.g. hobbies, unrelated certifications) if space is tight.
-5. Never cut to the point where a role's work history looks like a gap — at minimum keep 1 bullet per kept position.
+1. NEVER add a skill, tool, project, employer, number or length of experience the user doesn't
+   have. True facts come from the CV itself, `config/profile.md`, and what the user writes in
+   the run's instructions or ticks as a keyword (the user saying it's true is enough).
+2. NEVER change dates, company names, job titles, education or contact details.
+3. **Exactly one page.** `bash scripts/build_cv.sh <slug>` fails when the PDF has more than one
+   page; cut until it passes. Don't shrink fonts or margins to get there: cut words.
+4. Same LaTeX layout as the CV you started from (`resume.cls`, its commands and spacing). Don't
+   add a new section type the original doesn't have.
 
-## For role-specific tailoring
+## What to change
 
-Given a job description:
-- Identify the top 3–5 skills/keywords the JD emphasizes.
-- Move bullets that demonstrate those skills to the top of each position's bullet list.
-- **Remove** bullets that are clearly irrelevant to the role — if a bullet doesn't support any top skill, cut it.
-- If the CV has a summary/objective section, rewrite it to mention the role type (not the specific company).
-- Add relevant tech stack keywords if they appear naturally in existing bullets — don't force them.
-- After filtering content, if still over one page: shorten remaining bullets, then consider removing the oldest or least relevant positions entirely.
+Read the job description (`output/<slug>/jd.md`) and pick the 3 to 5 things it cares about
+most. Then go section by section:
 
-## For general (no role) tailoring
+- **Objective / summary**: rewrite it for this kind of role (mobile, backend, security, ...),
+  one or two lines. Never the company's name.
+- **Experience**: for each job, put the bullets that show the job's top skills first. Rephrase
+  a bullet so the work it already describes uses the job's words ("built the Twilio VoIP
+  flow" → "built real-time VoIP calling with Twilio" when the job asks for real-time). Cut
+  bullets that don't support this role, or merge two weak ones into one. Keep at least one
+  bullet per job, and the job's one-line description.
+- **Projects**: keep the ones that show this role's skills, cut or shorten the rest.
+- **Skills**: reorder the rows and items so the job's stack comes first; add the picked
+  keywords; drop items that are noise for this role when space is tight.
+- **Keywords the user picked** (true for them): put each one where the work happened, not only
+  in Skills. If the CV or profile has work that used it, say so in that bullet ("Kotlin" →
+  "...in Kotlin"; "CI/CD" → the bullet about releases). If the user's instructions describe new
+  work ("add that I built the BLE pairing flow"), add it as a new bullet under the right job.
+  Only a keyword with no honest place in a bullet goes in Skills alone.
+- **Adding vs. cutting**: every line added pays for itself with a line cut. Cut in this order:
+  bullets that don't fit the role, the weakest project, long bullets shortened to one line,
+  then noise in Skills. Never cut so much that a job looks empty.
 
-- Move the most impressive/senior-sounding bullets to the top.
-- Remove filler bullets (anything vague, redundant, or low-impact) to fit one page.
-- Make the summary/objective breadth-first (show range, not narrow specialization).
+A change of a few lines to a third of the bullets is typical: the user should still recognize
+their CV. The user's instructions win over everything here except the hard rules.
 
-## What NOT to do
+## Style
 
-- Don't change the LaTeX formatting or structure.
-- Don't add a new section the original CV doesn't have.
-- Don't write "I'm passionate about..." anywhere.
-- Don't reference the specific company name inside the CV.
-- No dashes as separators in prose (`-`, `—`). Use a comma or restructure the sentence. Date ranges use "to" (e.g. "2020 to 2023"), not a hyphen.
+- Bullets start with a past-tense verb, one line each where possible, a number when the
+  original has one (never a new invented number).
+- No "passionate", "results-driven", "proven track record" or other filler.
+- No company name of the target job anywhere in the CV.
+- No dashes as separators in prose (`-`, `—`). Use a comma or restructure. Keep the date
+  ranges exactly as the original writes them.
 
 ## Output
 
-A modified copy of the .tex source with inline comments marking each change:
+The modified `.tex`, with a comment above each change so the user can see what moved:
+
 ```latex
-% TAILORED: moved up for <reason>
-% TAILORED: removed — irrelevant to <role>
-% TAILORED: shortened to fit one page
+% TAILORED: rephrased for the job's real-time focus
+% TAILORED: moved up, the job asks for SDK work
+% TAILORED: removed, not relevant to backend roles
+% TAILORED: added from the user's instructions
 ```
+
+Then the summary of the run says, in a few lines, what changed, which keywords went where, and
+any keyword left out and why.

@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f8cff"/>
+      <stop offset="1" stop-color="#4f46e5"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity=".22"/>
+      <stop offset=".5" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#1e1b4b" flood-opacity=".35"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)" filter="url(#shadow)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#shine)"/>
+  <!-- briefcase -->
+  <path d="M412 330a50 50 0 0 1 50-50h100a50 50 0 0 1 50 50v38h-48v-30a10 10 0 0 0-10-10h-84a10 10 0 0 0-10 10v30h-48z" fill="#fff"/>
+  <rect x="262" y="378" width="500" height="330" rx="56" fill="#fff"/>
+  <path d="M262 470h500" stroke="#4f46e5" stroke-opacity=".18" stroke-width="16"/>
+  <rect x="482" y="448" width="60" height="46" rx="12" fill="#4f46e5" fill-opacity=".85"/>
+  <!-- check badge -->
+  <circle cx="730" cy="690" r="118" fill="#22c55e" stroke="#fff" stroke-width="26"/>
+  <path d="M672 692l40 40 78-80" fill="none" stroke="#fff" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

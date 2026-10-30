@@ -43,8 +43,23 @@ if [[ ! -f "$TEX_FILE" ]]; then
   exit 1
 fi
 
+# Pages in a PDF (macOS PDFKit); empty when it can't tell
+page_count() {
+  osascript -l JavaScript -e "ObjC.import('PDFKit'); \$.PDFDocument.alloc.initWithURL(\$.NSURL.fileURLWithPath('$1')).pageCount" 2>/dev/null || true
+}
+
 compile_ok() {
-  echo "PDF ready: $1"
+  local pages
+  pages="$(page_count "$1")"
+  if [[ -n "$pages" && "$pages" -gt 1 ]]; then
+    if [[ "$SLUG" == "--base" ]]; then
+      echo "WARNING: $1 is $pages pages. A CV should be one page." >&2
+    else
+      echo "ERROR: $1 is $pages pages. It must fit on one page: cut lines (don't shrink fonts or margins) and build again." >&2
+      exit 3
+    fi
+  fi
+  echo "PDF ready: $1${pages:+ ($pages page)}"
   # The base CV isn't tied to a company, so there's no report to refresh
   if [[ "$SLUG" != "--base" ]]; then
     python3 "$ROOT/scripts/generate_report.py" "$SLUG"

@@ -4,8 +4,9 @@ runs.py — background runs: Flow 3 started from the dashboard, done by Claude C
 
 Four kinds: "apply" (Flow 3 for a new job, the "+ New application" form), "cv" (improve the
 CV for an application, the report's "Improve CV" button: src/prompts/tailor_cv.md), "person"
-(messages for another HR person or team lead the user added on the report) and "email" (an
-email drafted on request, the report's "Write an email" button).
+(messages for an HR person or team lead the user added on the report), "general" (a message
+with {name} for a slot nobody was found for, the report's "Write a general message") and "email"
+(an email drafted on request, the report's "Write an email" button).
 
 The dashboard's "+ New application" form (or `runs.py start`) queues a run. One at a time, the
 dashboard server (scripts/serve.py) starts `claude -p` in this repo with a prompt that says
@@ -30,6 +31,7 @@ Usage:
   python3 scripts/runs.py start --page-file job.txt     # a job page you saved to a file
   python3 scripts/runs.py cv --slug acme --add Kotlin --add "CI/CD" --notes "put the BLE work first"
   python3 scripts/runs.py person --slug acme --kind hr --name "Noa Levi" --profile https://www.linkedin.com/in/noa/
+  python3 scripts/runs.py general --slug acme --slot 1
   python3 scripts/runs.py email --slug acme --to jobs@acme.com --notes "to the team lead, in Hebrew"
   python3 scripts/runs.py list
   python3 scripts/runs.py show <id>
@@ -69,7 +71,7 @@ KEEP_FINISHED = 50
 SHOW_FINISHED_DAYS = 3
 TICK_SECONDS = 1.5
 KILL_GRACE_SECONDS = 10
-FLOW_STEPS = {"apply": 10, "cv": 4, "person": 3, "email": 3}
+FLOW_STEPS = {"apply": 10, "cv": 4, "person": 3, "general": 3, "email": 3}
 
 PEOPLE_KINDS = {"hr": "HR / recruiter", "lead": "Team lead", "referral": "Someone the user knows there",
                 "other": "Other contact"}
@@ -108,6 +110,8 @@ RETRY_PROMPT = {
            "improving the CV from where you stopped."),
     "person": ("The run stopped before it finished. Check the person's messages in output/<slug>/meta.json "
                "and continue from where you stopped."),
+    "general": ("The run stopped before it finished. Check the slot's messages in output/<slug>/meta.json "
+                "and continue from where you stopped."),
     "email": ("The run stopped before it finished. Check email_draft in output/<slug>/meta.json and "
               "continue from where you stopped."),
 }
@@ -339,7 +343,7 @@ def create(p, force=False):
     """Queue a run. Returns {"run": id}, or {"duplicate": {...}} when the job is already there."""
     if p.get("kind") == "cv":
         return create_cv(p)
-    if p.get("kind") in ("person", "email"):
+    if p.get("kind") in ("person", "general", "email"):
         return create_draft(p)
     inp = clean_input(p)
     with _lock():
@@ -367,7 +371,7 @@ def create_cv(p):
             keywords.append(k)
     if len(keywords) > MAX_KEYWORDS:
         raise ValueError(f"Pick at most {MAX_KEYWORDS} keywords")
-    inp = {"slug": slug, "keywords": keywords, "notes": _text(p, "notes")}
+    inp = {"slug": slug, "keywords": keywords, "notes": _text(p, "notes"), "from_original": bool(p.get("from_original"))}
     company = meta.get("company") or slug
     with _lock():
         runs = load_runs()
@@ -397,6 +401,13 @@ def create_draft(p):
             raise ValueError(f"No person '{key}' on this application")
         inp.update(key=key, name=contact.get("name") or key)
         label = f"Messages for {inp['name']} — {company}"
+    elif run_kind == "general":
+        contact = st.empty_slot(meta, p.get("slot"))
+        slot_kind = st.contact_kind(contact)
+        if slot_kind not in ("hr", "lead"):
+            raise ValueError("A general message is for an HR or team lead slot")
+        inp.update(slot=int(p.get("slot")), slot_kind=slot_kind, key=f"slot-{int(p.get('slot'))}")
+        label = f"General message ({st.KIND_LABELS[slot_kind]}) — {company}"
     else:
         to = _text(p, "email")
         if not re.match(r"[^@\s]+@[^@\s]+\.[^@\s]+$", to):
@@ -423,13 +434,15 @@ def add_person(p):
     entry = st.find_entry(entries, slug) if meta else None
     if not entry:
         raise ValueError(f"No application '{slug}'")
+    if p.get("person_kind") not in ("hr", "lead"):
+        raise ValueError("Add an HR person or a team lead")
     profile = _text(p, "profile")
     if profile and not re.match(r"https?://\S+$", profile, re.IGNORECASE):
         raise ValueError("The LinkedIn link should start with https://")
     name_he = str(p.get("name_he") or "").strip()
     if len(name_he) > LIMITS["name"]:
         raise ValueError("The Hebrew name is too long")
-    key = st.add_contact(meta, p.get("person_kind"), _text(p, "name"), name_he, profile)
+    key = st.add_contact(meta, p.get("person_kind"), _text(p, "name"), name_he, profile, slot=p.get("slot"))
     st.save_meta(slug, meta)
     st.sync_threads(entry, meta)
     st.save_state(entries)
@@ -439,7 +452,7 @@ def add_person(p):
 def build_prompt(run):
     if kind(run) == "cv":
         return build_cv_prompt(run)
-    if kind(run) in ("person", "email"):
+    if kind(run) in ("person", "general", "email"):
         return build_draft_prompt(run)
     inp = run["input"]
     lines = ["This is a background run started from the job-search dashboard. Nobody is watching this",
@@ -470,6 +483,17 @@ def build_prompt(run):
     return "\n".join(lines) + "\n"
 
 
+def cv_start(slug, meta, from_original=False):
+    """Which CV an Improve CV run starts from: the user's last improved one, else the original version."""
+    improved = f"output/{slug}/tailored_cv.tex"
+    if meta.get("cv") == "tailored" and not from_original and (st.ROOT / improved).exists():
+        return f"{improved} (your last improved version: keep its changes unless the instructions undo them)"
+    tex = (meta.get("cv_original") or {}).get("tex") or (meta.get("cv_keywords") or {}).get("tex")
+    if not tex or tex == improved:
+        tex = "cv/main.tex"
+    return f"{tex} (the original CV; overwrite output/{slug}/tailored_cv.tex if it's there)"
+
+
 def build_cv_prompt(run):
     inp = run["input"]
     meta = st.load_meta(inp["slug"]) or {}
@@ -479,7 +503,7 @@ def build_cv_prompt(run):
              "",
              "Read CLAUDE.md, src/prompts/background_run.md (the \"Improve CV runs\" section) and",
              f"src/prompts/tailor_cv.md, then improve the CV for output/{inp['slug']}/ ({job}).",
-             ""]
+             "", f"Start from: {cv_start(inp['slug'], meta, inp.get('from_original'))}", ""]
     if inp.get("keywords"):
         lines += ["Keywords from the job the user says are true for them, to add to the CV:",
                   ", ".join(inp["keywords"])]
@@ -494,7 +518,8 @@ def build_draft_prompt(run):
     inp = run["input"]
     meta = st.load_meta(inp["slug"]) or {}
     job = " — ".join(x for x in (meta.get("company"), meta.get("job_title")) if x) or inp["slug"]
-    section = "Messages for one person" if kind(run) == "person" else "Email runs"
+    section = {"person": "Messages for one person", "general": "General message for an empty slot",
+               "email": "Email runs"}[kind(run)]
     lines = ["This is a background run started from the job-search dashboard. Nobody is watching this",
              "chat, and nobody can answer until the run ends.",
              "",
@@ -503,6 +528,8 @@ def build_draft_prompt(run):
              ""]
     if kind(run) == "person":
         lines.append(f"The person: contact key \"{inp['key']}\" in meta.json ({inp['name']}).")
+    elif kind(run) == "general":
+        lines.append(f"The slot: meta.json contacts[{inp['slot']}] ({st.KIND_LABELS[inp['slot_kind']]}, nobody found).")
     else:
         lines.append(f"Send it to: {inp['to']}")
     if inp.get("notes"):
@@ -796,7 +823,8 @@ def loop(stop_when_idle=False, on_change=None):
 def notify(run, settings):
     """A short macOS notification when a run ends: which job, and what happened. The details are
     on the dashboard, so no summary here."""
-    done = {"apply": "Ready", "cv": "CV improved", "person": "Messages ready", "email": "Email ready"}
+    done = {"apply": "Ready", "cv": "CV improved", "person": "Messages ready", "general": "Messages ready",
+            "email": "Email ready"}
     titles = {"done": done.get(kind(run), "Ready"), "needs_input": "Claude needs you", "skipped": "Skipped",
               "failed": "Run failed", "interrupted": "Run stopped"}
     if sys.platform != "darwin" or not settings.get("notify_when_done", True) or run["status"] not in titles:
@@ -806,6 +834,7 @@ def notify(run, settings):
     company = result.get("company") or meta.get("company")
     inp = run.get("input") or {}
     detail = {"apply": result.get("job_title") or meta.get("job_title"), "person": inp.get("name"),
+              "general": "General message ready to fill in",
               "email": inp.get("to")}.get(kind(run))
     body = _short(result.get("question"), 90) if run["status"] == "needs_input" else _short(detail, 60)
     script = ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
@@ -985,7 +1014,8 @@ def cmd_start(args):
 
 def cmd_cv(args):
     try:
-        res = create_cv({"slug": args.slug, "keywords": args.add or [], "notes": args.notes})
+        res = create_cv({"slug": args.slug, "keywords": args.add or [], "notes": args.notes,
+                         "from_original": args.from_original})
     except ValueError as err:
         sys.exit(f"ERROR: {err}")
     tick()
@@ -995,9 +1025,15 @@ def cmd_cv(args):
 def cmd_person(args):
     with st.state_lock():
         res = add_person({"slug": args.slug, "person_kind": args.kind, "name": args.name, "name_he": args.name_he,
-                          "profile": args.profile, "notes": args.notes})
+                          "profile": args.profile, "notes": args.notes, "slot": args.slot})
     tick()
     print(f"Added as '{res['key']}'. Queued run {res['run']}: python3 scripts/runs.py work")
+
+
+def cmd_general(args):
+    res = create_draft({"kind": "general", "slug": args.slug, "slot": args.slot, "notes": args.notes})
+    tick()
+    print(f"Queued run {res['run']}. Follow it on the dashboard or here: python3 scripts/runs.py work")
 
 
 def cmd_email(args):
@@ -1090,6 +1126,8 @@ def main():
     p_cv.add_argument("--slug", required=True)
     p_cv.add_argument("--add", action="append", help="A keyword from the job that's true for you (repeatable)")
     p_cv.add_argument("--notes", help="What else to change")
+    p_cv.add_argument("--from-original", action="store_true",
+                      help="Start from the original CV, not the last improved one")
 
     p_person = sub.add_parser("person", help="Add another HR person or team lead, and draft their messages")
     p_person.add_argument("--slug", required=True)
@@ -1098,6 +1136,12 @@ def main():
     p_person.add_argument("--name-he", help="First name in Hebrew")
     p_person.add_argument("--profile", help="LinkedIn URL")
     p_person.add_argument("--notes", help="Anything Claude should know about them")
+    p_person.add_argument("--slot", type=int, help="Fill this empty slot (index in meta.json contacts)")
+
+    p_general = sub.add_parser("general", help="Draft a general message ({name}) for a slot nobody was found for")
+    p_general.add_argument("--slug", required=True)
+    p_general.add_argument("--slot", type=int, required=True, help="Index in meta.json contacts")
+    p_general.add_argument("--notes")
 
     p_email = sub.add_parser("email", help="Draft an email for an application")
     p_email.add_argument("--slug", required=True)
@@ -1121,7 +1165,7 @@ def main():
     sub.add_parser("check", help="Is the claude CLI installed and logged in?")
 
     args = parser.parse_args()
-    commands = {"start": cmd_start, "cv": cmd_cv, "person": cmd_person, "email": cmd_email, "list": cmd_list, "show": cmd_show, "reply": cmd_reply,
+    commands = {"start": cmd_start, "cv": cmd_cv, "person": cmd_person, "general": cmd_general, "email": cmd_email, "list": cmd_list, "show": cmd_show, "reply": cmd_reply,
                 "cancel": cmd_cancel, "work": cmd_work, "check": cmd_check}
     handler = commands.get(args.command)
     if not handler:

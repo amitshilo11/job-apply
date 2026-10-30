@@ -172,16 +172,26 @@ python3 scripts/runs.py cv --slug acme --add Kotlin --notes "put the BLE work fi
 
 On a report, the CV card lists the job's keywords; red ones aren't on your CV. **Improve CV**
 opens a form: tick the red ones that are true for you, optionally say what else to change, and
-Claude rewrites the CV for this role in the background (`output/<slug>/tailored_cv.tex`, built
-to PDF). Progress shows on the CV card; when it's done, the improved CV is the one shown and
-attached for this role, with a summary of what changed. Click it again to improve further.
+Claude reworks the whole CV for this role in the background (`output/<slug>/tailored_cv.tex`,
+built to PDF): the summary, the experience bullets, projects and skills. It works the keywords
+into the bullets where that work happened, adds what your instructions describe, and cuts what
+doesn't fit the role, so the PDF stays one page (`build_cv.sh` fails on two). It never adds
+anything that isn't true. Until then every application uses your original CV. Progress shows on
+the CV card; when it's done, the improved CV is the one shown and attached for this role, with a
+summary of what changed. Click it again to improve further (from the improved one or the
+original), or **Back to original** to switch back (`cv_keywords.py --slug <slug> --original`).
 
 ### Nobody found for HR or team lead
 
-The messages are still drafted, with `{name}` where the first name goes. When you find the
-person, fill in their name (and LinkedIn link) on the report and the messages update, or just
-change the name in the message box before you copy it. Either way, the Sent buttons track that
-person like anyone else.
+No messages are drafted for that slot. On the report it has two buttons:
+
+- **+ Add HR / + Add team lead**: you found the person. Claude drafts their messages in the
+  background (a minute or two).
+- **Write a general message**: Claude drafts one with `{name}` where the first name goes. When
+  you find someone, fill in their name on the report and the messages update, or change the
+  name in the message box before you copy it.
+
+Either way, the Sent buttons track that person like anyone else.
 
 You can also just tell Claude: "sent the connect note to Noa in Hebrew", "Dan accepted",
 "Acme rejected me" (or `/sent ...`), and it records it.

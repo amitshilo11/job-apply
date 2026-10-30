@@ -108,8 +108,8 @@ Hebrew: "אשמח מאוד להזדמנות", "נרגש", "בעל מוטיבצי
 "אתגר מרתק", "חדשני", "להוות חלק".
 
 Also never: dashes as separators (" - ", "—"), semicolons, bullet lists, placeholders
-("[name]"; the one exception is `{name}` as the first name for a slot nobody was found for,
-see `src/prompts/find_contacts.md` §6), the same sentence you used for another company (the user's defaults are meant to
+("[name]"; the one exception is `{name}` as the first name in a general message the user asked
+for, see `src/prompts/find_contacts.md` §6), the same sentence you used for another company (the user's defaults are meant to
 repeat). If a phrase appears in the user's own
 samples, it's the user's voice and it's fine.
 

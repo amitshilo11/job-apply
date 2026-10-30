@@ -30,6 +30,7 @@ import posixpath
 import re
 import secrets
 import socket
+import subprocess
 import sys
 import threading
 import webbrowser
@@ -150,8 +151,20 @@ def act_add_person(p):
     return {"learned": "Added. Their messages are being drafted in the background."}
 
 
+def act_cv_original(p):
+    """Back to the original CV for this role; the improved one stays on disk for the next Improve CV."""
+    slug = str(p.get("slug") or "")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug) or not st.load_meta(slug):
+        raise ValueError(f"no application '{slug}'")
+    done = subprocess.run([sys.executable, os.path.join(st.ROOT, "scripts", "cv_keywords.py"), "--slug", slug, "--original"],
+                          capture_output=True, text=True, timeout=60)
+    if done.returncode:
+        raise ValueError((done.stderr or done.stdout).strip() or "couldn't switch the CV")
+    return {"learned": "Back to the original CV."}
+
+
 ACTIONS = {"event": act_event, "close-thread": act_close_thread, "person": act_person, "task": act_task,
-           "stage": act_stage, "add-person": act_add_person}
+           "stage": act_stage, "add-person": act_add_person, "cv-original": act_cv_original}
 
 
 def refresh_index():
