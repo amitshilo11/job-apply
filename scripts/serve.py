@@ -144,8 +144,14 @@ def act_stage(p):
     return {}
 
 
+def act_add_person(p):
+    """Another HR person or team lead, added on the report; a background run drafts their messages."""
+    runs.add_person(p)
+    return {"learned": "Added. Their messages are being drafted in the background."}
+
+
 ACTIONS = {"event": act_event, "close-thread": act_close_thread, "person": act_person, "task": act_task,
-           "stage": act_stage}
+           "stage": act_stage, "add-person": act_add_person}
 
 
 def refresh_index():

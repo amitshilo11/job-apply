@@ -206,6 +206,16 @@ def today_str():
     return date.today().isoformat()
 
 
+def show_date(value):
+    """How dates are shown to the user: 29/10 this year, 29/10/25 otherwise. Stored dates stay
+    ISO (YYYY-MM-DD, or a full ISO time); anything that isn't one is returned as it is."""
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", str(value or ""))
+    if not m:
+        return value or ""
+    y, mo, d = m.groups()
+    return f"{d}/{mo}" if int(y) == date.today().year else f"{d}/{mo}/{y[2:]}"
+
+
 def find_entry(entries, slug):
     return next((e for e in entries if e.get("slug") == slug), None)
 
@@ -340,6 +350,31 @@ def set_person(meta, key, name, name_he=None, profile=None):
     if profile:
         contact["profile"] = profile
     return contact
+
+
+def add_contact(meta, kind, name, name_he=None, profile=None, note=None):
+    """Another person the user found (a second recruiter, another team lead), added from the
+    report. Gets its own key and thread; its messages are drafted by a background run.
+    Returns the new key."""
+    if kind not in ("hr", "lead"):
+        raise ValueError("Add an HR person or a team lead")
+    name, name_he, profile = _clean(name), _clean(name_he), _clean(profile)
+    if not name:
+        raise ValueError("Write the person's name")
+    contacts = meta.setdefault("contacts", [])
+    if profile and any(_clean(c.get("profile")) == profile for c in contacts):
+        raise ValueError(f"{name} is already on this application")
+    used = set(k for k in contact_keys(contacts) if k)
+    n = 2
+    while f"{kind}-{n}" in used:
+        n += 1
+    key = f"{kind}-{n}"
+    contact = {"key": key, "kind": kind, "title": KIND_LABELS[kind], "name": name, "profile": profile,
+               "source": "you", "confidence": "high", "why": _clean(note) or "You added them."}
+    if name_he:
+        contact["name_he"] = name_he
+    contacts.append(contact)
+    return key
 
 
 def sync_threads(entry, meta):
@@ -557,7 +592,7 @@ def thread_state(entry, t, today, settings):
         return {"status": "closed", "label": CLOSE_REASONS.get(t["closed"], "Closed"),
                 "next_date": None, "action": None}
     if ev.get("replied"):
-        return {"status": "replied", "label": f"Replied on {ev['replied']}", "next_date": None, "action": None}
+        return {"status": "replied", "label": f"Replied on {show_date(ev['replied'])}", "next_date": None, "action": None}
 
     if t.get("channel") == "email":
         if not ev.get("sent"):
@@ -577,7 +612,7 @@ def thread_state(entry, t, today, settings):
                 if today >= check_on:
                     return _act("no_accept", check_on, today, wd,
                                 f"Connect sent {ev['connect_sent']}, not accepted", n=n)
-                return _wait(f"Waiting for them to accept (sent {ev['connect_sent']})", check_on, "accept")
+                return _wait(f"Waiting for them to accept (sent {show_date(ev['connect_sent'])})", check_on, "accept")
         if not ev.get("message_sent"):
             text = "Send your message (you're already connected)" if t.get("connected") else None
             return _act("message", ev.get("accepted") or created, today, wd, "Connected, no message yet", text=text)
@@ -591,13 +626,13 @@ def thread_state(entry, t, today, settings):
             due = add_workdays(last, int(gap), wd)
             if today >= due:
                 return _act(key, due, today, wd, "No reply yet", n=i, total=total)
-            return _wait(f"Waiting for a reply · follow-up #{i} on {due}", due, "reply")
+            return _wait(f"Waiting for a reply · follow-up #{i} on {show_date(due)}", due, "reply")
         last = ev[key]
     ghost_on = add_workdays(last, int(settings.get("ghost_after_workdays", 5)), wd)
     if today >= ghost_on:
         return {"status": "closed", "label": CLOSE_REASONS["ghosted"], "next_date": None,
                 "action": None, "auto_close": "ghosted"}
-    return _wait(f"Last follow-up sent · closes as no answer on {ghost_on}", ghost_on, "reply")
+    return _wait(f"Last follow-up sent · closes as no answer on {show_date(ghost_on)}", ghost_on, "reply")
 
 
 def apply_action(entry, meta, today, settings):
@@ -899,12 +934,12 @@ def _who(item):
 def _due_text(action):
     if action.get("overdue"):
         return f"overdue {action['overdue']} work day{'s' if action['overdue'] != 1 else ''}"
-    return f"due {action['due']}"
+    return f"due {show_date(action['due'])}"
 
 
 def print_today(data, settings):
     d = _as_date(data["date"])
-    print(f"Today — {d.strftime('%a')} {data['date']}\n")
+    print(f"Today — {d.strftime('%a')} {show_date(data['date'])}\n")
     groups = [("now", "DO NOW"), ("followups", "FOLLOW-UPS DUE"), ("check", "CHECK")]
     any_items = False
     for gid, title in groups:
@@ -925,7 +960,7 @@ def print_today(data, settings):
     if data["upcoming"]:
         print("COMING UP (next 5 work days)")
         for u in data["upcoming"]:
-            print(f"  • {u['date']}  {u['company']}{_who(u)}: {u['label']}")
+            print(f"  • {show_date(u['date'])}  {u['company']}{_who(u)}: {u['label']}")
         print()
     w = data["waiting"]
     print(f"Waiting: {w['accept']} connect request{'s' if w['accept'] != 1 else ''} to be accepted, "
@@ -1018,7 +1053,7 @@ def cmd_show(args):
         nxt = st["action"]["text"] + f" ({_due_text(st['action'])})" if st.get("action") else st["label"]
         print(f"      → {nxt}")
     for note in entry.get("stage_notes") or []:
-        print(f"  note {note['date']}: {note['note']}")
+        print(f"  note {show_date(note['date'])}: {note['note']}")
 
 
 def cmd_list_due(args):
@@ -1049,7 +1084,7 @@ def cmd_list_all(args):
         nxt = entry_next(e, load_meta(e["slug"]), today, settings)
         status_line = e.get("stage") or "active"
         if nxt:
-            status_line += f" · {nxt['text']} ({nxt['due']})"
+            status_line += f" · {nxt['text']} ({show_date(nxt['due'])})"
         print(f"  {e['company']:30s} {(e.get('job_title') or 'general')[:35]:35s} {status_line}")
 
 

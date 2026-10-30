@@ -13,6 +13,8 @@ flow. Read the relevant flow file before acting; don't guess at the steps from m
 | `process role <url>`, `apply for <title> at <Company>`, a pasted job page or a job screenshot | `src/flow3.md` — **the main flow** |
 | `run <url> in the background`, `queue this role for the dashboard` | `python3 scripts/runs.py start --url <url>` (`--hr`/`--lead`/`--knows "Name \| URL \| email"`, `--notes`): Flow 3 headless, shown on the dashboard |
 | `improve the CV for <Company>`, `add Kotlin to my CV for wiz` (in the background) | `python3 scripts/runs.py cv --slug <slug> --add <keyword> --notes "..."`: rewrites `output/<slug>/tailored_cv.tex` (`src/prompts/tailor_cv.md`), shown on the report |
+| `add another HR at <Company>`, `add Dana as team lead for wiz` (in the background) | `python3 scripts/runs.py person --slug <slug> --kind hr\|lead --name "..."` (`--name-he`, `--profile`, `--notes`): adds them and drafts their messages (report's **+ Add HR** / **+ Add team lead**) |
+| `write an email for <Company>` (in the background) | `python3 scripts/runs.py email --slug <slug> --to <address> --notes "..."` (report's **Write an email**) |
 | `what's today`, `show follow-ups`, `check due`, `draft follow-ups` | `src/flow1.md` (Follow-up sub-flow, near the end) |
 | `find jobs`, `check job alerts`, `watch <Company>` | `src/flow4.md` |
 | `import my LinkedIn export <zip>`, `catch up from LinkedIn` | `python3 scripts/linkedin_import.py <zip or folder>` (`--dry-run` first): records connect/accept/message/reply steps for tracked people, adds what they sent to the writing samples, copies `Connections.csv` |

@@ -264,7 +264,8 @@ def badge(cls, label):
 
 
 def fmt_date(value):
-    return esc(value) if value else ""
+    """DD/MM (DD/MM/YY outside this year), escaped."""
+    return esc(st.show_date(value)) if value else ""
 
 
 def languages(settings, *texts_by_lang):
@@ -429,6 +430,9 @@ REPORT_CSS = FORM_CSS + """
 .step.active .step-label{color:#0071e3}
 .step.done .step-label{color:#059669}
 .step.later{opacity:.6}
+details.step>summary{cursor:pointer;list-style:none}details.step>summary::-webkit-details-marker{display:none}
+details.step>summary.step-label::before{content:"▸";font-size:.7rem}details.step[open]>summary.step-label::before{content:"▾"}
+details.step[open]{opacity:1}
 .done-line{font-size:.82rem;color:#065f46;margin-top:.3rem}
 .hint{font-size:.8rem;color:#6e6e73;margin-top:.35rem}
 details.alternates{margin-top:.8rem;font-size:.85rem}
@@ -452,6 +456,7 @@ details.alternates li{margin:.35rem 0 0 1rem}
 .cv-run .title{display:flex;gap:.45rem;align-items:center;font-weight:600}
 .cv-run details{margin-top:.35rem}.cv-run summary{cursor:pointer;color:#0071e3}
 .cv-run pre{white-space:pre-wrap;font-family:inherit;font-size:.84rem;margin-top:.3rem}
+.add-people{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem}
 """
 
 INDEX_CSS = FORM_CSS + """
@@ -631,95 +636,139 @@ document.addEventListener('DOMContentLoaded', function() {
 """
 
 REPORT_JS = r"""
-var CV = {timer: null, active: false};
+// Background runs started from this page (Improve CV, a person's messages, an email), one box each
+var RUNS = {timer: null, active: {}};
+var RUN_TEXT = {
+  cv: {name: 'Improve CV', going: 'Improving the CV', done: '✓ CV improved', ready: 'The improved CV is ready.',
+       stopped: '✗ Improving the CV stopped', details: 'What changed'},
+  person: {name: 'Messages', going: 'Drafting the messages', done: '✓ Messages drafted', ready: 'The new messages are ready.',
+           stopped: '✗ Drafting the messages stopped', details: 'Summary'},
+  email: {name: 'Email', going: 'Writing the email', done: '✓ Email drafted', ready: 'The email is ready.',
+          stopped: '✗ Writing the email stopped', details: 'Summary'}
+};
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, function(c) {
     return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c];
   });
 }
-function openCvForm() {
+function openModal(id) {
   if (!SERVED) return showOffline();
-  document.getElementById('cv-modal').style.display = 'flex';
+  document.getElementById(id).style.display = 'flex';
 }
-function closeCvForm() { document.getElementById('cv-modal').style.display = 'none'; }
-function cvRunAct(action, id) {
+function closeModals() {
+  document.querySelectorAll('.modal-overlay').forEach(function(m) { m.style.display = 'none'; });
+}
+function runAct(action, id) {
   fetch('/api/' + action, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Job-Agent': '1'},
                            body: JSON.stringify({id: id})})
     .then(function(r) { return r.json(); })
-    .then(function(res) { if (!res.ok) throw new Error(res.error || 'failed'); refreshCvRun(); })
+    .then(function(res) { if (!res.ok) throw new Error(res.error || 'failed'); refreshRuns(); })
     .catch(function(err) { alert('Could not do that: ' + err.message); });
 }
-// The latest Improve CV run for this application, shown above the PDF until you hide it
-function refreshCvRun() {
-  var box = document.getElementById('cv-run');
-  if (!box || !SERVED) return;
-  clearTimeout(CV.timer);
+function renderRun(box, run) {
+  var t = RUN_TEXT[box.dataset.kind];
+  if (!run) { box.hidden = true; return; }
+  var s = run.status, title, body = '', btns = '', hide = '<button class="btn btn-quiet" data-run-act="run-dismiss" data-id="' + esc(run.id) + '">Hide</button>';
+  var cancel = '<button class="btn btn-quiet" data-run-act="run-cancel" data-id="' + esc(run.id) + '">Cancel</button>';
+  if (s === 'queued') {
+    title = '⏳ ' + t.name + ': ' + (run.position > 1 ? 'waiting, another run is going' : 'starting…');
+    btns = cancel;
+  } else if (s === 'running') {
+    var parts = ['<span class="spinner"></span>' + t.going];
+    if (run.step) parts.push('step ' + esc(run.step.n) + ' of ' + esc(run.steps) + ': ' + esc(run.step.text));
+    if (run.activity) parts.push(esc(run.activity));
+    title = parts.join(' · ');
+    btns = run.stopping ? '' : cancel;
+  } else if (s === 'done') {
+    title = t.done;
+    if (run.summary) body = '<details' + (box.dataset.kind === 'cv' ? ' open' : '') + '><summary>' + t.details + '</summary><pre>' + esc(run.summary) + '</pre></details>';
+    btns = hide;
+  } else if (s === 'needs_input') {
+    title = '❓ Claude has a question';
+    body = '<pre>' + esc(run.question || run.summary || '') + '</pre><a href="../index.html">Answer it on the dashboard</a>';
+    btns = hide;
+  } else {
+    title = s === 'cancelled' ? t.name + ': cancelled' : t.stopped;
+    if (run.error) body = '<pre>' + esc(run.error) + '</pre>';
+    btns = '<button class="btn btn-light" data-run-act="run-retry" data-id="' + esc(run.id) + '">Retry</button>' + hide;
+  }
+  box.className = 'cv-run run-box ' + s;
+  box.innerHTML = '<div class="row"><div class="title">' + title + '</div><div class="cv-buttons">' + btns + '</div></div>' + body;
+  box.hidden = false;
+}
+function refreshRuns() {
+  var boxes = document.querySelectorAll('.run-box[data-kind]');
+  if (!boxes.length || !SERVED) return;
+  clearTimeout(RUNS.timer);
   fetch('/api/runs').then(function(r) { return r.json(); }).then(function(data) {
-    var run = (data.runs || []).filter(function(r) { return r.kind === 'cv' && r.slug === box.dataset.slug; })[0];
-    var active = !!run && (run.status === 'queued' || run.status === 'running');
-    if (CV.active && !active) {
-      sessionStorage.setItem('ja-toast', run && run.status === 'done' ? 'The improved CV is ready.' : 'The CV run stopped.');
-      return location.reload();
+    var going = false;
+    for (var i = 0; i < boxes.length; i++) {
+      var box = boxes[i], k = box.dataset.kind;
+      var run = (data.runs || []).filter(function(r) { return r.kind === k && r.slug === box.dataset.slug; })[0];
+      var active = !!run && (run.status === 'queued' || run.status === 'running');
+      if (RUNS.active[k] && !active) {
+        sessionStorage.setItem('ja-toast', run && run.status === 'done' ? RUN_TEXT[k].ready : RUN_TEXT[k].name + ': the run stopped.');
+        return location.reload();
+      }
+      RUNS.active[k] = active;
+      going = going || active;
+      renderRun(box, run);
     }
-    CV.active = active;
-    if (!run) { box.hidden = true; return; }
-    var s = run.status, title, body = '', btns = '', hide = '<button class="btn btn-quiet" data-cv-act="run-dismiss" data-id="' + esc(run.id) + '">Hide</button>';
-    if (s === 'queued') {
-      title = '⏳ Improve CV: ' + (run.position > 1 ? 'waiting, another run is going' : 'starting…');
-      btns = '<button class="btn btn-quiet" data-cv-act="run-cancel" data-id="' + esc(run.id) + '">Cancel</button>';
-    } else if (s === 'running') {
-      var parts = ['<span class="spinner"></span>Improving the CV'];
-      if (run.step) parts.push('step ' + esc(run.step.n) + ' of ' + esc(run.steps) + ': ' + esc(run.step.text));
-      if (run.activity) parts.push(esc(run.activity));
-      title = parts.join(' · ');
-      btns = run.stopping ? '' : '<button class="btn btn-quiet" data-cv-act="run-cancel" data-id="' + esc(run.id) + '">Cancel</button>';
-    } else if (s === 'done') {
-      title = '✓ CV improved';
-      if (run.summary) body = '<details open><summary>What changed</summary><pre>' + esc(run.summary) + '</pre></details>';
-      btns = hide;
-    } else if (s === 'needs_input') {
-      title = '❓ Claude has a question about the CV';
-      body = '<pre>' + esc(run.question || run.summary || '') + '</pre><a href="../index.html">Answer it on the dashboard</a>';
-      btns = hide;
-    } else {
-      title = s === 'cancelled' ? 'Improve CV: cancelled' : '✗ Improving the CV stopped';
-      if (run.error) body = '<pre>' + esc(run.error) + '</pre>';
-      btns = '<button class="btn btn-light" data-cv-act="run-retry" data-id="' + esc(run.id) + '">Retry</button>' + hide;
-    }
-    box.className = 'cv-run ' + s;
-    box.innerHTML = '<div class="row"><div class="title">' + title + '</div><div class="cv-buttons">' + btns + '</div></div>' + body;
-    box.hidden = false;
-    if (active) CV.timer = setTimeout(refreshCvRun, 3000);
-  }).catch(function() { CV.timer = setTimeout(refreshCvRun, 10000); });
+    if (going) RUNS.timer = setTimeout(refreshRuns, 3000);
+  }).catch(function() { RUNS.timer = setTimeout(refreshRuns, 10000); });
+}
+function startRun(form, payload, toast) {
+  var btn = form.querySelector('[type=submit]');
+  btn.disabled = true;
+  fetch('/api/run-start', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Job-Agent': '1'},
+    body: JSON.stringify(payload)})
+    .then(function(r) { return r.json(); })
+    .then(function(res) {
+      if (!res.ok) throw new Error(res.error || 'failed');
+      closeModals(); form.reset();
+      showToast(toast, 4500);
+      RUNS.active[payload.kind] = true; refreshRuns();
+    })
+    .catch(function(err) { alert('Could not start: ' + err.message); })
+    .then(function() { btn.disabled = false; });
 }
 document.addEventListener('click', function(e) {
-  if (e.target.closest('[data-act="improve-cv"]')) return openCvForm();
-  var b = e.target.closest('[data-cv-act]');
-  if (b) cvRunAct(b.dataset.cvAct, b.dataset.id);
+  if (e.target.closest('[data-act="improve-cv"]')) return openModal('cv-modal');
+  if (e.target.closest('[data-act="write-email"]')) return openModal('email-modal');
+  var add = e.target.closest('[data-act="add-person"]');
+  if (add) {
+    var f = document.getElementById('person-add-form');
+    f.elements.person_kind.value = add.dataset.kind;
+    document.getElementById('person-modal-title').textContent = add.dataset.kind === 'lead' ? 'Add a team lead' : 'Add an HR person';
+    return openModal('person-modal');
+  }
+  if (e.target.closest('[data-close-modal]') || e.target.classList.contains('modal-overlay')) return closeModals();
+  var b = e.target.closest('[data-run-act]');
+  if (b) runAct(b.dataset.runAct, b.dataset.id);
 });
 document.addEventListener('DOMContentLoaded', function() {
-  var form = document.getElementById('cv-form'), modal = document.getElementById('cv-modal');
-  if (!form) return;
-  document.getElementById('cv-cancel').addEventListener('click', closeCvForm);
-  modal.addEventListener('click', function(e) { if (e.target === modal) closeCvForm(); });
-  form.addEventListener('submit', function(e) {
+  var cv = document.getElementById('cv-form');
+  if (cv) cv.addEventListener('submit', function(e) {
     e.preventDefault();
-    var keywords = Array.prototype.map.call(form.querySelectorAll('input[name=kw]:checked'), function(x) { return x.value; });
-    var btn = form.querySelector('[type=submit]');
-    btn.disabled = true;
-    fetch('/api/run-start', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Job-Agent': '1'},
-      body: JSON.stringify({kind: 'cv', slug: form.dataset.slug, keywords: keywords, notes: form.elements.notes.value.trim()})})
-      .then(function(r) { return r.json(); })
-      .then(function(res) {
-        if (!res.ok) throw new Error(res.error || 'failed');
-        closeCvForm(); form.reset();
-        showToast('Started. The improved CV shows up here when it\'s ready.', 4500);
-        CV.active = true; refreshCvRun();
-      })
-      .catch(function(err) { alert('Could not start: ' + err.message); })
-      .then(function() { btn.disabled = false; });
+    var keywords = Array.prototype.map.call(cv.querySelectorAll('input[name=kw]:checked'), function(x) { return x.value; });
+    startRun(cv, {kind: 'cv', slug: cv.dataset.slug, keywords: keywords, notes: cv.elements.notes.value.trim()},
+             'Started. The improved CV shows up here when it\'s ready.');
   });
-  refreshCvRun();
+  var em = document.getElementById('email-form');
+  if (em) em.addEventListener('submit', function(e) {
+    e.preventDefault();
+    startRun(em, {kind: 'email', slug: em.dataset.slug, email: em.elements.email.value.trim(), notes: em.elements.notes.value.trim()},
+             'Started. The email shows up here when it\'s ready.');
+  });
+  var pf = document.getElementById('person-add-form');
+  if (pf) pf.addEventListener('submit', function(e) {
+    e.preventDefault();
+    var f = pf.elements;
+    pf.querySelector('[type=submit]').disabled = true;
+    post('add-person', {slug: pf.dataset.slug, person_kind: f.person_kind.value, name: f.name.value.trim(),
+                        name_he: f.name_he.value.trim(), profile: f.profile.value.trim(), notes: f.notes.value.trim()});
+  });
+  refreshRuns();
 });
 """
 
@@ -762,7 +811,7 @@ function h(s) {
 }
 function shellQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
 function runName(run) {
-  if (run.kind === 'cv') return run.label;
+  if (run.kind !== 'apply') return run.label;
   return run.company ? run.company + (run.job_title ? ' — ' + run.job_title : '') : run.label;
 }
 function minutes(seconds) { var m = Math.floor(seconds / 60); return m < 1 ? 'under a minute' : m + ' min'; }
@@ -771,7 +820,7 @@ function runBtn(label, act, run, cls, extra) {
     (extra || '') + '>' + h(label) + '</button>';
 }
 function fitBadge(run) {
-  if (!run.fit_score || run.kind === 'cv') return '';
+  if (!run.fit_score || run.kind !== 'apply') return '';
   var cls = run.fit_score >= 4 ? 'badge-green' : run.fit_score == 3 ? 'badge-blue' : 'badge-amber';
   return '<span class="badge ' + cls + '">Fit ' + h(run.fit_score) + '/5</span>';
 }
@@ -1075,7 +1124,7 @@ def due_html(action):
     if action.get("overdue"):
         n = action["overdue"]
         return f'<span class="overdue">overdue {n} work day{"s" if n != 1 else ""}</span>'
-    return f'<span class="due">due {esc(action["due"])}</span>'
+    return f'<span class="due">due {fmt_date(action["due"])}</span>'
 
 
 def thread_who(thread):
@@ -1102,7 +1151,7 @@ def header_card(slug, entry, data, rows, apply, settings):
     if job_title:
         role_html = (f'<a class="role-link" href="{esc(apply_url)}" target="_blank">{esc(job_title)} ↗</a>'
                      if apply_url else f"<strong>{esc(job_title)}</strong>")
-    added = f' · added {esc(entry.get("created_at"))}' if entry.get("created_at") else ""
+    added = f' · added {fmt_date(entry.get("created_at"))}' if entry.get("created_at") else ""
 
     # What to do next, across everyone
     next_items = []
@@ -1352,7 +1401,7 @@ def contact_block(slug, contact, key, thread, tstate, settings, idx):
             how.append(f"{LANG_NAMES.get(thread['lang'], thread['lang'])} note")
         detail = f" ({', '.join(how)})" if how else ""
         steps.append('<div class="step done"><div class="step-label">1 · Connect request</div>'
-                     + done_line(f"Sent {ev['connect_sent']}{detail}", slug, key, "connect_sent") + "</div>")
+                     + done_line(f"Sent {st.show_date(ev['connect_sent'])}{detail}", slug, key, "connect_sent") + "</div>")
     else:
         active = atype == "connect"
         body = step_messages(slug, key, f"{prefix}_cn", connect_texts, settings,
@@ -1373,7 +1422,7 @@ def contact_block(slug, contact, key, thread, tstate, settings, idx):
     first_texts = {"en": contact.get("first_message"), "he": contact.get("first_message_he")}
     if ev.get("message_sent"):
         steps.append('<div class="step done"><div class="step-label">2 · First message</div>'
-                     + done_line(f"Sent {ev['message_sent']}", slug, key, "message_sent") + "</div>")
+                     + done_line(f"Sent {st.show_date(ev['message_sent'])}", slug, key, "message_sent") + "</div>")
     elif any(first_texts.values()) or atype == "message":
         active = atype == "message"
         later = not active and status not in ("closed", "replied")
@@ -1383,8 +1432,12 @@ def contact_block(slug, contact, key, thread, tstate, settings, idx):
         if active and not body:
             body = ('<div class="hint">No message drafted. Write your own, then: '
                     + ev_btn("Mark sent", slug, key, "message_sent", cls="btn btn-quiet") + "</div>")
-        steps.append(f'<div class="step{" active" if active else ""}{" later" if later else ""}">'
-                     f'<div class="step-label">{esc(label)}</div>{body}</div>')
+        if active:
+            steps.append(f'<div class="step active"><div class="step-label">{esc(label)}</div>{body}</div>')
+        else:
+            # Not needed until they accept: folded, open it when you want to read ahead
+            steps.append(f'<details class="step{" later" if later else ""}">'
+                         f'<summary class="step-label">{esc(label)}</summary>{body}</details>')
 
     # 3 · Follow-ups
     schedule = settings.get("followup_schedule_workdays") or [4, 5]
@@ -1393,7 +1446,7 @@ def contact_block(slug, contact, key, thread, tstate, settings, idx):
     for n in range(1, len(schedule) + 1):
         event = f"followup_{n}"
         if ev.get(event):
-            fu_html += done_line(f"Follow-up #{n} sent {ev[event]}", slug, key, event)
+            fu_html += done_line(f"Follow-up #{n} sent {st.show_date(ev[event])}", slug, key, event)
             continue
         draft = drafts.get(str(n)) or {}
         texts = {"en": draft.get("text"), "he": draft.get("text_he")}
@@ -1408,8 +1461,12 @@ def contact_block(slug, contact, key, thread, tstate, settings, idx):
             fu_html += f'<div class="hint"><strong>Follow-up #{n}</strong></div>{body}'
     if fu_html:
         active = (atype or "").startswith("followup")
-        steps.append(f'<div class="step{" active" if active else ""}"><div class="step-label">3 · Follow-ups</div>'
-                     f"{fu_html}</div>")
+        if active or any(ev.get(f"followup_{n}") for n in range(1, len(schedule) + 1)):
+            steps.append(f'<div class="step{" active" if active else ""}"><div class="step-label">3 · Follow-ups</div>'
+                         f"{fu_html}</div>")
+        else:
+            steps.append(f'<details class="step later"><summary class="step-label">3 · Follow-ups</summary>'
+                         f"{fu_html}</details>")
 
     alternates = contact.get("alternates") or []
     alt_html = ""
@@ -1470,7 +1527,7 @@ def people_card(slug, entry, data, settings, today):
         items = "".join(
             f'<li><a href="{esc(k.get("url"))}" target="_blank">{esc(k.get("name"))}</a>'
             f' · {esc(k.get("position") or "")}'
-            + (f' <span class="meta">(connected {esc(k.get("connected_on"))})</span>' if k.get("connected_on") else "")
+            + (f' <span class="meta">(connected {fmt_date(k.get("connected_on"))})</span>' if k.get("connected_on") else "")
             + "</li>" for k in known)
         known_html = (f'<div class="known"><strong>You already know {len(known)} '
                       f'{"person" if len(known) == 1 else "people"} at {esc(company)}.</strong> '
@@ -1495,11 +1552,61 @@ def people_card(slug, entry, data, settings, today):
                       f'who left): {search}</div>')
     else:
         links_html = f'<div class="search-links">Check or find others on LinkedIn: {search}</div>'
+    add = ('<div class="add-people">'
+           + button("+ Add HR", {"data-act": "add-person", "data-kind": "hr"}, "btn btn-light")
+           + button("+ Add team lead", {"data-act": "add-person", "data-kind": "lead"}, "btn btn-light")
+           + "</div>")
     return f"""<div class="card">
   <div class="section-title">People</div>
   {known_html}
   {blocks}
+  {add}
+  <div class="cv-run run-box" data-kind="person" data-slug="{esc(slug)}" hidden></div>
   {links_html}
+</div>
+{add_person_form_html(slug, company)}"""
+
+
+def add_person_form_html(slug, company):
+    """Another HR person or team lead the user found; a background run drafts their messages."""
+    return f"""<div id="person-modal" class="modal-overlay">
+  <form class="modal" id="person-add-form" data-slug="{esc(slug)}" autocomplete="off">
+    <h3 id="person-modal-title">Add someone at {esc(company)}</h3>
+    <input type="hidden" name="person_kind" value="hr">
+    <p class="form-note">They get their own connect note and first message, drafted in the background
+    (a minute or two), and their own tracking.</p>
+    <label class="field">Full name<input type="text" name="name" required maxlength="200"></label>
+    <label class="field">First name in Hebrew (optional)<input type="text" name="name_he" maxlength="200" dir="auto"></label>
+    <label class="field">LinkedIn URL (optional)<input type="url" name="profile" maxlength="500"></label>
+    <label class="field">Anything Claude should know (optional)
+      <textarea name="notes" maxlength="4000" placeholder="e.g. she recruits for the mobile team, write in Hebrew"></textarea></label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-quiet" data-close-modal>Cancel</button>
+      <button type="submit" class="btn">Add and draft</button>
+    </div>
+  </form>
+</div>"""
+
+
+def email_form_html(slug, suggestions):
+    """Write an email on request: to whom, and anything to say."""
+    options = "".join(f'<option value="{esc(e)}">' for e in suggestions)
+    first = suggestions[0] if suggestions else ""
+    return f"""<div id="email-modal" class="modal-overlay">
+  <form class="modal" id="email-form" data-slug="{esc(slug)}" autocomplete="off">
+    <h3>Write an email</h3>
+    <p class="form-note">Claude drafts it in the background (Hebrew and English), with the CV to attach.
+    Nothing is sent: you send it yourself and click Sent.</p>
+    <label class="field">To<input type="email" name="email" required maxlength="200" list="email-suggestions"
+      value="{esc(first)}"></label>
+    <datalist id="email-suggestions">{options}</datalist>
+    <label class="field">Who it's for, what to say (optional)
+      <textarea name="notes" maxlength="4000" placeholder="e.g. to the team lead, mention the BLE project"></textarea></label>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-quiet" data-close-modal>Cancel</button>
+      <button type="submit" class="btn">Write it</button>
+    </div>
+  </form>
 </div>"""
 
 
@@ -1507,13 +1614,22 @@ def email_card(slug, entry, data, settings, today):
     draft = data.get("email_draft") or {}
     thread = st.get_thread(entry, "email")
     has_body = draft.get("body") or draft.get("body_he")
+    suggestions = []
+    for e in [draft.get("to"), data.get("email")] + [c.get("email") for c in data.get("contacts") or []]:
+        if e and "@" in str(e) and e not in suggestions:
+            suggestions.append(e)
+    write_btn = button("Write an email" if not has_body else "Write a new one", {"data-act": "write-email"},
+                       "btn" if not has_body else "btn btn-light")
+    run_box = f'<div class="cv-run run-box" data-kind="email" data-slug="{esc(slug)}" hidden></div>'
+    form = email_form_html(slug, suggestions)
     if not has_body:
         if thread and (thread.get("events") or {}).get("sent"):
-            body = f'<p class="meta">Email sent to {esc(thread.get("to"))} on {esc(thread["events"]["sent"])}.</p>'
+            body = f'<p class="meta">Email sent to {esc(thread.get("to"))} on {fmt_date(thread["events"]["sent"])}.</p>'
         else:
-            body = ('<p class="skipped-note">No email address found, so no email. '
-                    "LinkedIn is the main channel for this one.</p>")
-        return f'<div class="card"><div class="section-title">Email</div>{body}</div>'
+            body = ('<p class="skipped-note">No email drafted. LinkedIn is the main channel for this one; '
+                    "found an address? Claude can write one.</p>")
+        return (f'<div class="card"><div class="section-title">Email<span class="cv-buttons">{write_btn}</span></div>'
+                f'{body}{run_box}</div>{form}')
 
     tstate = st.thread_state(entry, thread, today, settings) if thread else None
     ev = (thread or {}).get("events") or {}
@@ -1527,7 +1643,7 @@ def email_card(slug, entry, data, settings, today):
 
     texts = {"en": draft.get("body"), "he": draft.get("body_he")}
     if ev.get("sent"):
-        main = done_line(f"Sent {ev['sent']}", slug, "email", "sent")
+        main = done_line(f"Sent {st.show_date(ev['sent'])}", slug, "email", "sent")
     else:
         main = ""
     main += step_messages(slug, "email", "em", texts, settings,
@@ -1542,7 +1658,7 @@ def email_card(slug, entry, data, settings, today):
     for n in range(1, len(schedule) + 1):
         event = f"followup_{n}"
         if ev.get(event):
-            fu += done_line(f"Follow-up #{n} sent {ev[event]}", slug, "email", event)
+            fu += done_line(f"Follow-up #{n} sent {st.show_date(ev[event])}", slug, "email", event)
             continue
         d = drafts.get(str(n)) or {}
         texts = {"en": d.get("body"), "he": d.get("body_he")}
@@ -1561,11 +1677,13 @@ def email_card(slug, entry, data, settings, today):
             slug, "email", "emlegacy", {"en": legacy.get("body"), "he": legacy.get("body_he")}, settings)
     fu_html = f'<div class="step"><div class="step-label">Follow-ups</div>{fu}</div>' if fu else ""
     return f"""<div class="card">
-  <div class="section-title">Email</div>
+  <div class="section-title">Email<span class="cv-buttons">{write_btn}</span></div>
   {head}
+  {run_box}
   <div class="step{" active" if atype == "email" else ""}">{main}</div>
   {fu_html}
-</div>"""
+</div>
+{form}"""
 
 
 def cv_card(slug, data):
@@ -1596,7 +1714,7 @@ def cv_card(slug, data):
     return f"""<div class="card" id="cv">
   <div class="section-title">{esc(title)}<span class="cv-buttons">{improve}<a class="btn btn-light" href="{esc(href)}" download>Download PDF</a></span></div>
   {kw_html}
-  <div id="cv-run" class="cv-run" data-slug="{esc(slug)}" hidden></div>
+  <div class="cv-run run-box" data-kind="cv" data-slug="{esc(slug)}" hidden></div>
   <iframe class="pdf-frame" src="{esc(href)}"></iframe>
 </div>
 {cv_form_html(slug, kw.get("missing") or [])}"""
@@ -1621,7 +1739,7 @@ def cv_form_html(slug, missing):
     <label class="field">What else to change (optional)
       <textarea name="notes" maxlength="4000" placeholder="e.g. put the BLE work first, shorten the older jobs"></textarea></label>
     <div class="modal-actions">
-      <button type="button" class="btn btn-quiet" id="cv-cancel">Cancel</button>
+      <button type="button" class="btn btn-quiet" data-close-modal>Cancel</button>
       <button type="submit" class="btn">Improve</button>
     </div>
   </form>
@@ -1687,7 +1805,7 @@ def history_card(entry):
         items.append((entry["created_at"], "Added"))
     if len(items) <= 1:
         return ""
-    rows = "".join(f'<li><span class="d">{esc(d)}</span>{esc(text)}</li>'
+    rows = "".join(f'<li><span class="d">{fmt_date(d)}</span>{esc(text)}</li>'
                    for d, text in sorted(items, key=lambda x: x[0], reverse=True))
     return f'<div class="card"><div class="section-title">History</div><ul class="timeline">{rows}</ul></div>'
 
@@ -1745,7 +1863,7 @@ def today_item_html(item, meta, settings, idx):
     slug, key = item["slug"], item.get("key")
     overdue = a.get("overdue")
     pill = (f'<span class="due-pill overdue">overdue {overdue} work day{"s" if overdue != 1 else ""}</span>'
-            if overdue else f'<span class="due-pill">due {esc(a["due"])}</span>')
+            if overdue else f'<span class="due-pill">due {fmt_date(a["due"])}</span>')
     who = ""
     if item.get("kind") != "apply":
         label = st.KIND_LABELS.get(item.get("kind"), item.get("kind") or "")
@@ -1811,7 +1929,7 @@ def today_card(today_data, settings):
         html = '<p class="empty">Nothing to send today.</p>'
     if today_data["upcoming"]:
         rows = "".join(
-            f'<li><span class="d">{esc(u["date"])}</span><strong>{esc(u["company"])}</strong>'
+            f'<li><span class="d">{fmt_date(u["date"])}</span><strong>{esc(u["company"])}</strong>'
             f' · {esc(u.get("name") or st.KIND_LABELS.get(u.get("kind"), ""))}: {esc(u["label"])}</li>'
             for u in today_data["upcoming"])
         html += f'<div class="group-title">Coming up (next 5 work days)</div><ul class="upcoming">{rows}</ul>'
@@ -1822,7 +1940,7 @@ def today_card(today_data, settings):
         foot += (f" LinkedIn notes this month: {today_data['notes_this_month']} "
                  f"(free accounts get about {today_data['note_limit']}).")
     return f"""<div class="card">
-  <div class="section-title">Today<span class="meta" style="text-transform:none;letter-spacing:0">{esc(today_data['date'])}</span></div>
+  <div class="section-title">Today<span class="meta" style="text-transform:none;letter-spacing:0">{fmt_date(today_data['date'])}</span></div>
   {html}
   <div class="footnote">{esc(foot)}</div>
 </div>"""
@@ -1886,7 +2004,7 @@ def generate_index(slugs=None):
         nxt = st.entry_next(e, meta, today, settings)
         next_html = ""
         if nxt:
-            when = f" · overdue {nxt['overdue']}d" if nxt.get("overdue") else f" · {nxt['due']}"
+            when = f" · overdue {nxt['overdue']}d" if nxt.get("overdue") else f" · {st.show_date(nxt['due'])}"
             next_html = (f'<div class="app-next{" overdue" if nxt.get("overdue") else ""}">'
                          f'{"→ " if nxt["kind"] == "action" else "⏳ "}{esc(nxt["text"])}{esc(when)}</div>')
         href = f"{esc(slug)}/report.html" if os.path.isdir(os.path.join(out_root, slug)) else "#"
@@ -1905,7 +2023,7 @@ def generate_index(slugs=None):
                 if os.path.isdir(os.path.join(out_root, e["slug"])) else esc(e.get("company")))
         closed_rows += (f"<tr><td>{link}<div class='details'>{esc(e.get('job_title') or '')}</div></td>"
                         f"<td>{badge(cls, label)}<div class='details'>{esc(note)}</div></td>"
-                        f"<td class='details'>{esc(e.get('stage_updated_at') or '')}</td>"
+                        f"<td class='details'>{fmt_date(e.get('stage_updated_at'))}</td>"
                         f"<td>{button('Reopen', {'data-act': 'stage', 'data-slug': e['slug'], 'data-stage': ''}, 'btn btn-quiet')}</td></tr>")
     closed_html = (f'<table class="table"><tr><th>Company</th><th>Outcome</th><th>Date</th><th></th></tr>{closed_rows}</table>'
                    if closed_rows else '<p class="empty">Nothing closed yet.</p>')
@@ -1917,7 +2035,7 @@ def generate_index(slugs=None):
         skipped_rows += (f"<tr><td><strong>{esc(s.get('company', ''))}</strong></td>"
                          f"<td><div class='reason'>{esc(s.get('reason', ''))}</div>"
                          f"<div class='details'>{esc(s.get('details', ''))}</div>{source_html}</td>"
-                         f"<td class='details'>{esc(s.get('skipped_at', ''))}</td></tr>")
+                         f"<td class='details'>{fmt_date(s.get('skipped_at'))}</td></tr>")
     skipped_html = (f'<table class="table"><tr><th>Company</th><th>Reason</th><th>Date</th></tr>{skipped_rows}</table>'
                     if skipped_rows else '<p class="empty">Nothing skipped.</p>')
 

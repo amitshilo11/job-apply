@@ -2,8 +2,10 @@
 """
 runs.py — background runs: Flow 3 started from the dashboard, done by Claude Code headless.
 
-Two kinds: "apply" (Flow 3 for a new job, the "+ New application" form) and "cv" (improve the
-CV for an application, the report's "Improve CV" button: src/prompts/tailor_cv.md).
+Four kinds: "apply" (Flow 3 for a new job, the "+ New application" form), "cv" (improve the
+CV for an application, the report's "Improve CV" button: src/prompts/tailor_cv.md), "person"
+(messages for another HR person or team lead the user added on the report) and "email" (an
+email drafted on request, the report's "Write an email" button).
 
 The dashboard's "+ New application" form (or `runs.py start`) queues a run. One at a time, the
 dashboard server (scripts/serve.py) starts `claude -p` in this repo with a prompt that says
@@ -27,6 +29,8 @@ Usage:
   python3 scripts/runs.py start --company "Acme" --title "Android Developer" --go-ahead
   python3 scripts/runs.py start --page-file job.txt     # a job page you saved to a file
   python3 scripts/runs.py cv --slug acme --add Kotlin --add "CI/CD" --notes "put the BLE work first"
+  python3 scripts/runs.py person --slug acme --kind hr --name "Noa Levi" --profile https://www.linkedin.com/in/noa/
+  python3 scripts/runs.py email --slug acme --to jobs@acme.com --notes "to the team lead, in Hebrew"
   python3 scripts/runs.py list
   python3 scripts/runs.py show <id>
   python3 scripts/runs.py reply <id> "Continue anyway"
@@ -65,7 +69,7 @@ KEEP_FINISHED = 50
 SHOW_FINISHED_DAYS = 3
 TICK_SECONDS = 1.5
 KILL_GRACE_SECONDS = 10
-FLOW_STEPS = {"apply": 10, "cv": 4}
+FLOW_STEPS = {"apply": 10, "cv": 4, "person": 3, "email": 3}
 
 PEOPLE_KINDS = {"hr": "HR / recruiter", "lead": "Team lead", "referral": "Someone the user knows there",
                 "other": "Other contact"}
@@ -102,6 +106,10 @@ RETRY_PROMPT = {
               "and continue Flow 3 from where you stopped."),
     "cv": ("The run stopped before it finished. Check output/<slug>/tailored_cv.tex and continue "
            "improving the CV from where you stopped."),
+    "person": ("The run stopped before it finished. Check the person's messages in output/<slug>/meta.json "
+               "and continue from where you stopped."),
+    "email": ("The run stopped before it finished. Check email_draft in output/<slug>/meta.json and "
+              "continue from where you stopped."),
 }
 
 STEP_RE = re.compile(r"^[#*_\s]*step\s+(\d{1,2})(?:\s*(?:of|/)\s*\d+)?\s*[:.\-–—]\s*(.+?)[*_\s]*$", re.IGNORECASE)
@@ -216,7 +224,7 @@ def command(run, settings, resume):
     if resume:
         cmd += ["--resume", run["session_id"]]
     else:
-        name = run["label"] if kind(run) == "cv" else f"Apply: {run['label']}"
+        name = f"Apply: {run['label']}" if kind(run) == "apply" else run["label"]
         cmd += ["--session-id", run["session_id"], "--name", name]
     if settings.get("background_model"):
         cmd += ["--model", str(settings["background_model"])]
@@ -331,6 +339,8 @@ def create(p, force=False):
     """Queue a run. Returns {"run": id}, or {"duplicate": {...}} when the job is already there."""
     if p.get("kind") == "cv":
         return create_cv(p)
+    if p.get("kind") in ("person", "email"):
+        return create_draft(p)
     inp = clean_input(p)
     with _lock():
         runs = load_runs()
@@ -369,9 +379,68 @@ def create_cv(p):
     return {"run": run["id"]}
 
 
+def create_draft(p):
+    """Queue a run that drafts messages for one person the user added ("person"), or an email the
+    user asked for on the report ("email"). A person is added to meta.json first (state.add_contact)."""
+    slug = str(p.get("slug") or "").strip()
+    meta = st.load_meta(slug) if SLUG_RE.match(slug) else None
+    if not meta:
+        raise ValueError(f"No application '{slug}'")
+    company = meta.get("company") or slug
+    run_kind = p["kind"]
+    inp = {"slug": slug, "notes": _text(p, "notes")}
+    if run_kind == "person":
+        key = str(p.get("key") or "")
+        contacts = meta.get("contacts") or []
+        contact = next((c for c, k in zip(contacts, st.contact_keys(contacts)) if k and k == key), None)
+        if not contact:
+            raise ValueError(f"No person '{key}' on this application")
+        inp.update(key=key, name=contact.get("name") or key)
+        label = f"Messages for {inp['name']} — {company}"
+    else:
+        to = _text(p, "email")
+        if not re.match(r"[^@\s]+@[^@\s]+\.[^@\s]+$", to):
+            raise ValueError("Write the email address to send it to")
+        inp["to"] = to
+        label = f"Email — {company}"
+    with _lock():
+        runs = load_runs()
+        if any(kind(r) == run_kind and r.get("slug") == slug and r["status"] in ACTIVE
+               and r["input"].get("key") == inp.get("key") for r in runs):
+            raise ValueError("That's already being drafted")
+        run = _new_run(label, inp, kind=run_kind, slug=slug)
+        runs.append(run)
+        save_runs(runs)
+    return {"run": run["id"]}
+
+
+def add_person(p):
+    """Put another HR person or team lead on an application (meta.json and its tracking thread)
+    and queue the run that drafts their messages. The caller holds st.state_lock()."""
+    slug = str(p.get("slug") or "").strip()
+    meta = st.load_meta(slug) if SLUG_RE.match(slug) else None
+    entries = st.load_state()
+    entry = st.find_entry(entries, slug) if meta else None
+    if not entry:
+        raise ValueError(f"No application '{slug}'")
+    profile = _text(p, "profile")
+    if profile and not re.match(r"https?://\S+$", profile, re.IGNORECASE):
+        raise ValueError("The LinkedIn link should start with https://")
+    name_he = str(p.get("name_he") or "").strip()
+    if len(name_he) > LIMITS["name"]:
+        raise ValueError("The Hebrew name is too long")
+    key = st.add_contact(meta, p.get("person_kind"), _text(p, "name"), name_he, profile)
+    st.save_meta(slug, meta)
+    st.sync_threads(entry, meta)
+    st.save_state(entries)
+    return dict(create_draft({"kind": "person", "slug": slug, "key": key, "notes": p.get("notes")}), key=key)
+
+
 def build_prompt(run):
     if kind(run) == "cv":
         return build_cv_prompt(run)
+    if kind(run) in ("person", "email"):
+        return build_draft_prompt(run)
     inp = run["input"]
     lines = ["This is a background run started from the job-search dashboard. Nobody is watching this",
              "chat, and nobody can answer until the run ends.",
@@ -418,6 +487,26 @@ def build_cv_prompt(run):
         lines.append("No keywords picked: tailor the CV to the job description.")
     if inp.get("notes"):
         lines += ["", "What the user wants changed:", inp["notes"]]
+    return "\n".join(lines) + "\n"
+
+
+def build_draft_prompt(run):
+    inp = run["input"]
+    meta = st.load_meta(inp["slug"]) or {}
+    job = " — ".join(x for x in (meta.get("company"), meta.get("job_title")) if x) or inp["slug"]
+    section = "Messages for one person" if kind(run) == "person" else "Email runs"
+    lines = ["This is a background run started from the job-search dashboard. Nobody is watching this",
+             "chat, and nobody can answer until the run ends.",
+             "",
+             f"Read CLAUDE.md and src/prompts/background_run.md (the \"{section}\" section), then",
+             f"follow it for output/{inp['slug']}/ ({job}).",
+             ""]
+    if kind(run) == "person":
+        lines.append(f"The person: contact key \"{inp['key']}\" in meta.json ({inp['name']}).")
+    else:
+        lines.append(f"Send it to: {inp['to']}")
+    if inp.get("notes"):
+        lines += ["", "Notes from the user:", inp["notes"]]
     return "\n".join(lines) + "\n"
 
 
@@ -705,19 +794,25 @@ def loop(stop_when_idle=False, on_change=None):
 
 
 def notify(run, settings):
-    """A macOS notification when a run ends: done, needs you, skipped or failed."""
-    titles = {"done": "Ready", "needs_input": "Claude needs you", "skipped": "Skipped",
+    """A short macOS notification when a run ends: which job, and what happened. The details are
+    on the dashboard, so no summary here."""
+    done = {"apply": "Ready", "cv": "CV improved", "person": "Messages ready", "email": "Email ready"}
+    titles = {"done": done.get(kind(run), "Ready"), "needs_input": "Claude needs you", "skipped": "Skipped",
               "failed": "Run failed", "interrupted": "Run stopped"}
     if sys.platform != "darwin" or not settings.get("notify_when_done", True) or run["status"] not in titles:
         return
     result = run.get("result") or {}
-    name = " — ".join(x for x in (result.get("company"), result.get("job_title")) if x) or run["label"]
-    body = result.get("question") if run["status"] == "needs_input" else (run.get("error") or result.get("summary"))
+    meta = (st.load_meta(run["slug"]) or {}) if run.get("slug") else {}
+    company = result.get("company") or meta.get("company")
+    inp = run.get("input") or {}
+    detail = {"apply": result.get("job_title") or meta.get("job_title"), "person": inp.get("name"),
+              "email": inp.get("to")}.get(kind(run))
+    body = _short(result.get("question"), 90) if run["status"] == "needs_input" else _short(detail, 60)
     script = ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)",
               "-e", "end run"]
     try:
-        subprocess.Popen(["osascript", *script, f"{titles[run['status']]}: {name}",
-                          _short(body, 180) or "Open the dashboard to see it."],
+        subprocess.Popen(["osascript", *script, f"{titles[run['status']]}: {_short(company or run['label'], 40)}",
+                          body or "Open the dashboard"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except OSError:
         pass
@@ -854,7 +949,7 @@ def _person(kind, value):
 
 def _line(run):
     view = public_run(run)
-    name = view["label"] if view["kind"] == "cv" else (
+    name = view["label"] if view["kind"] != "apply" else (
         " — ".join(x for x in (view["company"], view["job_title"]) if x) or view["label"])
     text = f"{run['id']}  {run['status']:<11}  {name}"
     if run["status"] == "running":
@@ -893,6 +988,20 @@ def cmd_cv(args):
         res = create_cv({"slug": args.slug, "keywords": args.add or [], "notes": args.notes})
     except ValueError as err:
         sys.exit(f"ERROR: {err}")
+    tick()
+    print(f"Queued run {res['run']}. Follow it on the dashboard or here: python3 scripts/runs.py work")
+
+
+def cmd_person(args):
+    with st.state_lock():
+        res = add_person({"slug": args.slug, "person_kind": args.kind, "name": args.name, "name_he": args.name_he,
+                          "profile": args.profile, "notes": args.notes})
+    tick()
+    print(f"Added as '{res['key']}'. Queued run {res['run']}: python3 scripts/runs.py work")
+
+
+def cmd_email(args):
+    res = create_draft({"kind": "email", "slug": args.slug, "email": args.to, "notes": args.notes})
     tick()
     print(f"Queued run {res['run']}. Follow it on the dashboard or here: python3 scripts/runs.py work")
 
@@ -961,7 +1070,7 @@ def cmd_check(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Background runs started from the dashboard: Flow 3 and Improve CV")
+    parser = argparse.ArgumentParser(description="Background runs started from the dashboard: Flow 3, Improve CV, people and emails")
     sub = parser.add_subparsers(dest="command")
 
     p_start = sub.add_parser("start", help="Queue a run for a job")
@@ -982,6 +1091,19 @@ def main():
     p_cv.add_argument("--add", action="append", help="A keyword from the job that's true for you (repeatable)")
     p_cv.add_argument("--notes", help="What else to change")
 
+    p_person = sub.add_parser("person", help="Add another HR person or team lead, and draft their messages")
+    p_person.add_argument("--slug", required=True)
+    p_person.add_argument("--kind", choices=["hr", "lead"], required=True)
+    p_person.add_argument("--name", required=True)
+    p_person.add_argument("--name-he", help="First name in Hebrew")
+    p_person.add_argument("--profile", help="LinkedIn URL")
+    p_person.add_argument("--notes", help="Anything Claude should know about them")
+
+    p_email = sub.add_parser("email", help="Draft an email for an application")
+    p_email.add_argument("--slug", required=True)
+    p_email.add_argument("--to", required=True, help="The address to send it to")
+    p_email.add_argument("--notes", help="Who it's for, what to say")
+
     p_list = sub.add_parser("list", help="Recent runs")
     p_list.add_argument("--limit", type=int, default=15)
 
@@ -999,7 +1121,7 @@ def main():
     sub.add_parser("check", help="Is the claude CLI installed and logged in?")
 
     args = parser.parse_args()
-    commands = {"start": cmd_start, "cv": cmd_cv, "list": cmd_list, "show": cmd_show, "reply": cmd_reply,
+    commands = {"start": cmd_start, "cv": cmd_cv, "person": cmd_person, "email": cmd_email, "list": cmd_list, "show": cmd_show, "reply": cmd_reply,
                 "cancel": cmd_cancel, "work": cmd_work, "check": cmd_check}
     handler = commands.get(args.command)
     if not handler:

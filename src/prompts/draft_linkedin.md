@@ -12,7 +12,8 @@ Read `config/writing_samples.md` every time, in this order:
 1. **"Learned from your edits"**: what the user actually sent after changing a draft, or wrote
    from scratch. This beats everything else. Notice what was changed: that's the lesson.
 2. **"Defaults you picked"**: the connect note, first message and follow-ups the user chose.
-   Start every message from the matching one, fill the slots, and keep the wording.
+   Start every message from the matching one and keep its fixed wording; a slot that asks for
+   something written for this role (e.g. a "specific line") is written fresh every time.
 3. The sent samples and the user's other templates.
 4. The tone notes at the bottom.
 
@@ -36,9 +37,10 @@ Write every message once per language in `message_languages` (`config/settings.j
 
 - **About the user:** only what's in `config/profile.md`, the CV, or the samples. No stretching to
   fit a role ("the core is strong backend and systems work" when the profile says Android).
-- **About them:** when a message says something about them (the user's defaults may not), one
-  concrete detail from the job description or the role card (the product, the team the JD
-  names, a technology in the JD that the user has really used). A detail, not praise.
+- **About them:** every connect note and first message says one concrete thing about this
+  role: the product, the team the JD names, what the role builds, or a technology in the JD
+  that the user has really used. From the job description or the role card. A detail, not
+  praise. A message that would read the same for any other company is wrong.
 - **Nothing the user didn't do.** Never "I've been reading up on...", "I've been following...",
   "I've been curious about X for a while", "I saw your post/talk", "I use your product",
   "קראתי על", "עוקב אחריכם". If the user tells you it's true, it can go in.
@@ -53,17 +55,18 @@ Write every message once per language in `message_languages` (`config/settings.j
 ### Connect note (not for people the user already knows)
 - Max `connect_note_max_chars` characters (default **200**: LinkedIn's limit on free accounts),
   counted with the name and company filled in.
-- **With a default:** use it, with the intro that fits the role, and add nothing (no detail,
-  praise, ask, CV or links). Over the limit: shorten it the way the samples file says, without
-  rewriting the rest.
+- **With a default:** use it, with the intro that fits the role, and write its role-specific
+  slot for this role. Add nothing else (no praise, ask, CV or links). Over the limit: shorten
+  it the way the samples file says, without rewriting the rest.
 - **No default yet:** who the user is, in one phrase ("Android developer, 3+ years in <their
   domain>"), why this company (one real thing), a low-pressure line. No ask, no CV, no links.
   Aim for 100 to 170 characters. Free accounts only get a few notes a month, so it has to earn
   its place.
 
 ### First message (after they accept)
-- **With a default:** use it for recruiters, team leads and founders alike. No pitch, CV fact
-  or "why I fit" line unless the user asks for one on that role.
+- **With a default:** use it for recruiters, team leads and founders alike, with its
+  role-specific slot written for this role (for a team lead, lean on the work; for HR, on the
+  role). Not the same sentence as the connect note.
 - **No default yet:** under 80 words, 2 to 4 short sentences. The role (name it), the one most
   relevant thing the user has done for it (a CV fact, a number if there is one), and an easy
   ask: a short call, whether the role is still open, or who the right person is. By recipient:

@@ -2,7 +2,9 @@
 
 A run from the dashboard's **+ New application** form (or `scripts/runs.py start`): Flow 3 with
 nobody watching. A run from a report's **Improve CV** button (or `scripts/runs.py cv`) follows
-the same rules, plus the "Improve CV runs" section at the end. The user is somewhere else and only sees the dashboard, which shows your
+the same rules, plus the "Improve CV runs" section at the end. So do runs from a report's **+ Add
+HR** / **+ Add team lead** (`scripts/runs.py person`) and **Write an email** (`scripts/runs.py
+email`) buttons: the "Messages for one person" and "Email runs" sections. The user is somewhere else and only sees the dashboard, which shows your
 `Step` lines while you work and your final result when you stop. So never ask and wait: follow
 `src/flow3.md` with the changes below, then end with the structured result.
 
@@ -84,3 +86,42 @@ instructions. Steps (print each `Step <n>: <what>` line):
 Result: `done` with a short summary: what changed, the keywords added, any left out and why.
 `failed` when the PDF won't build. No `needs_input`: an unclear instruction gets the reasonable
 reading, said in the summary.
+
+---
+
+## Messages for one person
+
+The user added another HR person or team lead to an application (a second recruiter, another
+lead). They're already in `output/<slug>/meta.json` → `contacts`, with the key the prompt names,
+their name, and no messages yet. Steps (print each `Step <n>: <what>` line):
+
+1. **Step 1: read.** `output/<slug>/meta.json` (role card, the other contacts and their
+   messages), `output/<slug>/jd.md`, `config/profile.md`, `config/writing_samples.md`,
+   `src/prompts/draft_linkedin.md`. Don't search the web for the person, and don't change who
+   they are: the user picked them.
+2. **Step 2: draft.** Their connect note and first message, Hebrew first, written into that
+   contact only (draft_linkedin.md §4, by their kind: HR or team lead). Use their first name
+   (`name_he` for Hebrew when set). The role-specific line comes from the role card and the job
+   description, like the other contacts' messages, but in different words: two people at the
+   same company may compare notes. Leave every other contact as it is.
+3. **Step 3: check and save.** `python3 scripts/check_messages.py <slug>` until it passes, then
+   `python3 scripts/state.py sync --slug <slug>` and `python3 scripts/generate_report.py <slug>`.
+
+Result: `done`, with a one-line summary. No `needs_input`.
+
+## Email runs
+
+The user asked for an email on this application, to the address in the prompt. Steps:
+
+1. **Step 1: read.** `output/<slug>/meta.json`, `output/<slug>/jd.md`, `config/profile.md`,
+   `config/writing_samples.md`, `src/prompts/draft_linkedin.md` §1–3, `src/prompts/draft_email.md`.
+2. **Step 2: draft.** Following draft_email.md, Hebrew first. Address it by the user's notes:
+   a person's address (match it to a contact in meta.json when one has it, and use their first
+   name) or a company inbox ("Hi team,"). Write meta.json `email` (the address) and
+   `email_draft` (`to`, `subject`, `body`, `subject_he`, `body_he`). An earlier draft there is
+   replaced. Don't send it and don't make a Gmail draft (no Gmail here).
+3. **Step 3: check and save.** `python3 scripts/check_messages.py <slug>` until it passes, then
+   `python3 scripts/state.py sync --slug <slug>` (the email gets its tracking thread) and
+   `python3 scripts/generate_report.py <slug>`.
+
+Result: `done`, with a one-line summary. No `needs_input`.
